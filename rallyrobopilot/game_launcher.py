@@ -2,7 +2,7 @@ from rallyrobopilot import Car, Track, SunLight, MultiRaySensor
 from ursina import *
 
 
-def prepare_game_app():
+def prepare_game_app(track_name = "SimpleTrack"):
     from ursina import window, Ursina
     
     # Create Window
@@ -29,8 +29,7 @@ def prepare_game_app():
     #                Car texture             Particle Textures
     global_texs = [ "assets/cars/garage/sports-car/sports-red.png", "sports-blue.png", "sports-green.png", "sports-orange.png", "sports-white.png", "particle_forest_track.png", "red.png"]
     
-    # load assets
-    track_name = "SimpleTrack"
+    # load asset
     track = Track(track_name)
     print("loading assets after track creation")
     track.load_assets(global_models, global_texs)

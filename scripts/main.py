@@ -10,6 +10,6 @@ print("Flask server running on port 5000")
 flask_thread.start()
         
 
-app, car = prepare_game_app()
+app, car = prepare_game_app("VisualTrack")
 remote_controller = RemoteController(car = car, connection_port=7654, flask_app=flask_app)
 app.run()
