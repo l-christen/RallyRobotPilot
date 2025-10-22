@@ -17,7 +17,11 @@ def load_track_metadata(track_name):
     """
     # Construct the full package path for the track's metadata
     root_dir = Path(__file__).resolve().parent.parent
-    asset_path = root_dir / f"assets/{track_name}/track_metadata.json"
+    if ".json" not in track_name:
+        asset_path = root_dir / f"assets/{track_name}/track_metadata.json"
+    else:
+        asset_path = root_dir / f"assets/{track_name}"
+
     with open(asset_path, "r") as f:
         metadata = json.load(f)
 
