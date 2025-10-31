@@ -281,6 +281,7 @@ class Car(Entity):
 
 
     def update(self):
+        time.dt = 1/40
         # Exit if esc pressed.
         if held_keys["escape"]:
             quit()
