@@ -1,0 +1,36 @@
+{
+    "track_model": "assets/VisualTrack/cuby.obj",
+    "track_texture": "assets/VisualTrack/IntersectionGeneralTex.png",
+
+    "origin_position": [ 0, 1   , 0],
+    "origin_rotation": [  0, 0, 0 ],
+    "origin_scale": [ 1, 1, 1 ],
+
+    "car_default_reset_position": [ 0, 0, 0 ],
+    "car_default_reset_orientation": [ 0, -90, 0 ],
+
+    "finish_line_position": [ 31, -48, 72 ],
+    "finish_line_rotation": [ 0, 0, 0 ],
+    "finish_line_scale": [ 3, 8, 30 ],
+
+    "details":
+    [
+        {
+            "model": "assets/VisualTrack/IntersectionRoad.obj",
+            "texture": "assets/VisualTrack/IntersectionGeneralTex.png"
+        },
+
+        {
+            "model": "assets/VisualTrack/IntersectionPath2.obj",
+            "texture": "assets/Indicators/Indicators_white.png"
+        }
+    ], 
+    "obstacles":
+    [
+        {
+            "model": "assets/VisualTrack/IntersectionObstacles.obj",
+            "texture": "assets/VisualTrack/IntersectionGeneralTex. png"
+        }
+    ],
+    "trajectories" : "assets/VisualTrack/intersection.traj"
+}
