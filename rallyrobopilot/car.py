@@ -59,8 +59,8 @@ class Car(Entity):
         self.car_type = "sports"
 
         # Particles
-        self.particle_time = 0
-        self.particle_amount = 0.07 # The lower, the more
+        #self.particle_time = 0
+        #self.particle_amount = 0.07 # The lower, the more
         self.particle_pivot = Entity(parent = self)
         self.particle_pivot.position = (0, -1, -2)
 
@@ -187,8 +187,8 @@ class Car(Entity):
         self.particle_time += time.dt
         if self.particle_time >= self.particle_amount:
             self.particle_time = 0
-            self.particles = Particles(self, self.particle_pivot.world_position - (0, 1, 0))
-            self.particles.destroy(1)
+            #self.particles = Particles(self, self.particle_pivot.world_position - (0, 1, 0))
+            #self.particles.destroy(1)
 
     def hand_brake(self):
         # Hand Braking
@@ -292,7 +292,7 @@ class Car(Entity):
             self.speed += self.acceleration * time.dt
             self.driving = True
 
-            self.display_particles()
+            #self.display_particles()
         else:
             self.driving = False
             if self.speed > 1:
