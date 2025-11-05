@@ -1,6 +1,7 @@
 import struct
 
 import numpy as np
+import time
 
 
 def iter_unpack(format, data):

@@ -7,7 +7,7 @@ def prepare_game_app():
     
     # Create Window
     window.vsync = False # Set to false to uncap FPS limit of 60
-    app = Ursina(size=(720, 1050))
+    app = Ursina(size=(512, 720))
     print("Asset folder")
     print(application.asset_folder)
 
@@ -30,7 +30,7 @@ def prepare_game_app():
     global_texs = [ "assets/cars/garage/sports-car/sports-red.png", "sports-blue.png", "sports-green.png", "sports-orange.png", "sports-white.png", "particle_forest_track.png", "red.png"]
     
     # load assets
-    track_name = "VisualTrack"
+    track_name = "SimpleTrack"
     track = Track(track_name)
     print("loading assets after track creation")
     track.load_assets(global_models, global_texs)
