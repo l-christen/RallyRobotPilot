@@ -3,6 +3,7 @@ from ursina import *
 import socket
 import select
 import numpy as np
+import time
 
 from flask import Flask, request, jsonify
 
@@ -78,6 +79,7 @@ class RemoteController(Entity):
             snapshot.car_speed = self.car.speed
             snapshot.car_angle = self.car.rotation_y
             snapshot.raycast_distances = self.car.multiray_sensor.collect_sensor_values()
+            snapshot.timestamp = time.time()
 
             #   Collect last rendered image
             tex = base.win.getDisplayRegion(0).getScreenshot()

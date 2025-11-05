@@ -9,18 +9,27 @@ print(type(data[0]))        # type de message
 
 import cv2
 import numpy as np
-
-img = data[0].image
+last_idx = len(data) - 1
+img = data[last_idx].image
+print(img.shape, img.min(), img.max())
 if img is not None:
-    cv2.imshow("frame", img)
+    img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    cv2.imshow("Frame", img_bgr)
     cv2.waitKey(0)
 
-import os
-os.makedirs("extracted_imgs", exist_ok=True)
-
+times = []
 for i, msg in enumerate(data):
-    if msg.image is None:
-        continue
+    times.append(msg.timestamp)
 
-    img = cv2.cvtColor(msg.image, cv2.COLOR_RGB2BGR)
-    cv2.imwrite(f"extracted_imgs/frame_{i:05}.jpg", img)
+times = np.array(times)
+intervals = times[1:] - times[:-1]
+print("Average interval: ", np.mean(intervals))
+print("Min interval: ", np.min(intervals))
+print("Max interval: ", np.max(intervals))
+# distribution histogram
+import matplotlib.pyplot as plt
+plt.hist(intervals, bins=20)
+plt.title("Histogram of time intervals between snapshots")
+plt.xlabel("Interval (s)")
+plt.ylabel("Frequency")
+plt.show()

@@ -11,5 +11,6 @@ flask_thread.start()
         
 
 app, car = prepare_game_app()
+car.enable_recording(True, period_hz=10, out_dir="data")
 remote_controller = RemoteController(car = car, connection_port=7654, flask_app=flask_app)
 app.run()

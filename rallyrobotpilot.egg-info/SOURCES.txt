@@ -14,4 +14,5 @@ rallyrobopilot/track.py
 rallyrobotpilot.egg-info/PKG-INFO
 rallyrobotpilot.egg-info/SOURCES.txt
 rallyrobotpilot.egg-info/dependency_links.txt
+rallyrobotpilot.egg-info/requires.txt
 rallyrobotpilot.egg-info/top_level.txt
