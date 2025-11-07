@@ -10,7 +10,7 @@ print(type(data[0]))        # type de message
 import cv2
 import numpy as np
 last_idx = len(data) - 1
-img = data[last_idx].image
+img = data[5].image
 print(img.shape, img.min(), img.max())
 if img is not None:
     img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)

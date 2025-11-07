@@ -7,7 +7,7 @@ def prepare_game_app():
     
     # Create Window
     window.vsync = False # Set to false to uncap FPS limit of 60
-    app = Ursina(size=(512, 720))
+    app = Ursina(size=(160, 224))
     print("Asset folder")
     print(application.asset_folder)
 
@@ -44,7 +44,7 @@ def prepare_game_app():
     
     car.multiray_sensor = MultiRaySensor(car, 15, 90)
     car.multiray_sensor.enable()
-    car.multiray_sensor.set_enabled_rays(False)   
+    car.multiray_sensor.set_enabled_rays(False)
     
     # Lighting + shadows
     sun = SunLight(direction = (-0.7, -0.9, 0.5), resolution = 3072, car = car)
