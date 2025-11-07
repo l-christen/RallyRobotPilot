@@ -1,52 +1,99 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 from torch.cuda.amp import GradScaler, autocast
 import numpy as np
 from tqdm import tqdm
 import os
 from model import CNNLSTMModel
+import pickle
+import lzma
+
+import os
+import pickle
+import lzma
+import torch
+from torch.utils.data import Dataset
 
 class VideoGameDataset(Dataset):
     """
-    Dataset personnalisé pour vos données.
-    À adapter selon votre format de données.
+    Dataset PyTorch pour les données RallyRobotPilot.
+    Chaque élément correspond à une séquence temporelle
+    (15 frames, raycasts, vitesse, directions).
     """
-    def __init__(self, data_path, transform=None):
+
+    def __init__(self, data_path, transform=None, seq_len=15, skip=2):
         """
         Args:
-            data_path: Chemin vers vos données
-            transform: Transformations à appliquer aux images
+            data_path (str): dossier contenant les .npz
+            transform (callable): transformations d'image (resize, normalize, etc.)
+            seq_len (int): taille des séquences temporelles
+            skip (int): nombre d’images initiales à ignorer (ex: 2)
         """
         self.data_path = data_path
         self.transform = transform
-        
-        # TODO: Charger vos données ici
-        # Par exemple, liste de chemins vers les séquences
-        # self.sequences = self.load_sequences()
-        
-    def __len__(self):
-        # TODO: Retourner le nombre de séquences
-        return 1000  # Placeholder
+        self.seq_len = seq_len
+        self.skip = skip
+
+        self.samples = self.compile_all_data()
+
+    def open_data_file(self, file_path):
+        """Ouvre un fichier .npz contenant des SensingSnapshot"""
+        with lzma.open(file_path, "rb") as file:
+            data = pickle.load(file)
+        if not isinstance(data, list):
+            raise ValueError(f"Unexpected format in {file_path}")
+        return data
+
+    def process_data(self, data):
+        """Découpe les données en séquences de longueur seq_len"""
+        processed = []
+        for i in range(self.skip, len(data) - self.seq_len + 1):
+            seq = data[i:i+self.seq_len]
+
+            images, raycasts, speeds, directions = [], [], [], []
+
+            for msg in seq:
+                img = msg.image
+                if self.transform:
+                    img = self.transform(img)
+                images.append(img)
+
+                raycasts.append(msg.raycast_distances)
+                speeds.append(msg.car_speed)
+                directions.append(msg.current_controls)
+
+            images = torch.stack(images)  # (seq_len, C, H, W)
+            raycasts = torch.tensor(raycasts[-1], dtype=torch.float32)  # dernière frame
+            speed = torch.tensor(speeds[-1], dtype=torch.float32)       # dernière frame
+            directions = torch.tensor(directions[-1], dtype=torch.float32)  # dernière frame
+
+            processed.append((images, raycasts, speed, directions))
+
+        return processed
+
+    def compile_all_data(self):
+        """Charge toutes les runs et compile toutes les séquences"""
+        all_sequences = []
+        for file_name in os.listdir(self.data_path):
+            if file_name.endswith(".npz"):
+                file_path = os.path.join(self.data_path, file_name)
+                try:
+                    data = self.open_data_file(file_path)
+                    seqs = self.process_data(data)
+                    all_sequences.extend(seqs)
+                except Exception as e:
+                    print(f"[X] Erreur sur {file_name}: {e}")
+        print(f"[✓] {len(all_sequences)} séquences compilées depuis {self.data_path}")
+        return all_sequences
     
+    def __len__(self):
+        return len(self.samples)
+
     def __getitem__(self, idx):
-        """
-        Retourne:
-            images: Tensor (15, 3, H, W)
-            raycasts: Tensor (15,)
-            speed: Tensor (1,)
-            classification: Tensor (4,) avec valeurs 0 ou 1
-        """
-        # TODO: Charger votre séquence d'images et labels
-        # Ceci est un exemple avec des données aléatoires
-        
-        images = torch.randn(15, 3, 224, 224)  # 15 images RGB
-        raycasts = torch.randn(15)  # 15 valeurs de raycast
-        speed = torch.randn(1)  # 1 vitesse
-        classification = torch.randint(0, 2, (4,)).float()  # w, a, s, d
-        
-        return images, raycasts, speed, classification
+        return self.samples[idx]
+
 
 
 class MultiTaskLoss(nn.Module):
@@ -182,9 +229,11 @@ def main():
     print(f"Using device: {device}")
     
     # Datasets
-    # TODO: Adapter avec vos vrais datasets
-    train_dataset = VideoGameDataset(DATA_PATH)
-    val_dataset = VideoGameDataset(DATA_PATH)
+    dataset = VideoGameDataset(DATA_PATH)
+
+    train_size = int(0.8 * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
     
     train_loader = DataLoader(
         train_dataset, 
