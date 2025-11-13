@@ -281,6 +281,9 @@ class Car(Entity):
 
 
     def update(self):
+        # fixing the time.dt value for more consistent physics : 0.025s per frame (40fps)
+        time.dt = 1/40
+
         # Exit if esc pressed.
         if held_keys["escape"]:
             quit()
