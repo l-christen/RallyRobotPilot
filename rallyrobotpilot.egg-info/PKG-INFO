@@ -7,8 +7,18 @@ Author: Louis Lettry, Cédric Travelletti
 Author-email: 
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
+Requires-Dist: flask==3.0.3
+Requires-Dist: imageio==2.35.1
+Requires-Dist: matplotlib>=3.10.7
+Requires-Dist: numpy>=2.1.0
 Requires-Dist: opencv-python>=4.12.0.88
+Requires-Dist: psd-tools3==1.8.2
 Requires-Dist: pyqt6>=6.10.0
+Requires-Dist: screeninfo==0.8.1
+Requires-Dist: setuptools>=80.9.0
+Requires-Dist: tqdm>=4.67.1
+Requires-Dist: ursina==5.0.0
+Requires-Dist: ursinanetworking==2.1.4
 Dynamic: author
 Dynamic: requires-python
 

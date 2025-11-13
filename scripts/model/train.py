@@ -10,89 +10,22 @@ from model import CNNLSTMModel
 import pickle
 import lzma
 
-import os
-import pickle
-import lzma
-import torch
-from torch.utils.data import Dataset
+
 
 class VideoGameDataset(Dataset):
-    """
-    Dataset PyTorch pour les données RallyRobotPilot.
-    Chaque élément correspond à une séquence temporelle
-    (15 frames, raycasts, vitesse, directions).
-    """
-
-    def __init__(self, data_path, transform=None, seq_len=15, skip=2):
-        """
-        Args:
-            data_path (str): dossier contenant les .npz
-            transform (callable): transformations d'image (resize, normalize, etc.)
-            seq_len (int): taille des séquences temporelles
-            skip (int): nombre d’images initiales à ignorer (ex: 2)
-        """
-        self.data_path = data_path
+    def __init__(self, preproc_dir, transform=None):
+        self.files = [os.path.join(preproc_dir, f)
+                      for f in os.listdir(preproc_dir) if f.endswith(".pt")]
         self.transform = transform
-        self.seq_len = seq_len
-        self.skip = skip
 
-        self.samples = self.compile_all_data()
-
-    def open_data_file(self, file_path):
-        """Ouvre un fichier .npz contenant des SensingSnapshot"""
-        with lzma.open(file_path, "rb") as file:
-            data = pickle.load(file)
-        if not isinstance(data, list):
-            raise ValueError(f"Unexpected format in {file_path}")
-        return data
-
-    def process_data(self, data):
-        """Découpe les données en séquences de longueur seq_len"""
-        processed = []
-        for i in range(self.skip, len(data) - self.seq_len + 1):
-            seq = data[i:i+self.seq_len]
-
-            images, raycasts, speeds, directions = [], [], [], []
-
-            for msg in seq:
-                img = msg.image
-                if self.transform:
-                    img = self.transform(img)
-                images.append(img)
-
-                raycasts.append(msg.raycast_distances)
-                speeds.append(msg.car_speed)
-                directions.append(msg.current_controls)
-
-            images = torch.stack(images)  # (seq_len, C, H, W)
-            raycasts = torch.tensor(raycasts[-1], dtype=torch.float32)  # dernière frame
-            speed = torch.tensor(speeds[-1], dtype=torch.float32)       # dernière frame
-            directions = torch.tensor(directions[-1], dtype=torch.float32)  # dernière frame
-
-            processed.append((images, raycasts, speed, directions))
-
-        return processed
-
-    def compile_all_data(self):
-        """Charge toutes les runs et compile toutes les séquences"""
-        all_sequences = []
-        for file_name in os.listdir(self.data_path):
-            if file_name.endswith(".npz"):
-                file_path = os.path.join(self.data_path, file_name)
-                try:
-                    data = self.open_data_file(file_path)
-                    seqs = self.process_data(data)
-                    all_sequences.extend(seqs)
-                except Exception as e:
-                    print(f"[X] Erreur sur {file_name}: {e}")
-        print(f"[✓] {len(all_sequences)} séquences compilées depuis {self.data_path}")
-        return all_sequences
-    
     def __len__(self):
-        return len(self.samples)
+        return len(self.files)
 
     def __getitem__(self, idx):
-        return self.samples[idx]
+        images, raycasts, speed, directions = torch.load(self.files[idx])
+        if self.transform:
+            images = self.transform(images)
+        return images, raycasts, speed, directions
 
 
 
@@ -220,7 +153,7 @@ def main():
     IMG_WIDTH = 160
     
     # Chemins
-    DATA_PATH = "./data"
+    DATA_PATH = "preprocessed"
     CHECKPOINT_DIR = "./checkpoints"
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
     

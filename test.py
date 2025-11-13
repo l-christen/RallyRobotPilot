@@ -1,7 +1,7 @@
 import lzma
 import pickle
 
-with lzma.open("data/record_0.npz", "rb") as f:
+with lzma.open("data/record_8.npz", "rb") as f:
     data = pickle.load(f)
 
 print(len(data))            # nombre de snapshots
@@ -33,3 +33,4 @@ plt.title("Histogram of time intervals between snapshots")
 plt.xlabel("Interval (s)")
 plt.ylabel("Frequency")
 plt.show()
+print(data[20].car_speed)

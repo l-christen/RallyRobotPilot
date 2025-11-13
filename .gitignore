@@ -2,3 +2,8 @@ rallyrobopilot/__pycache__/
 .venv/
 data/
 scripts/model/models/
+preprocessed/
+checkpoints/
+.vscode/
+scripts/__pycache__/
+scripts/model/__pycache__/

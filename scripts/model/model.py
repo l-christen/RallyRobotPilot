@@ -126,6 +126,37 @@ class CNNLSTMModel(nn.Module):
     def get_num_parameters(self):
         """Retourne le nombre de paramètres du modèle"""
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
+    
+    def init_hidden(self, batch_size=1, device=None):
+        """Initialise les états cachés du LSTM (h, c)"""
+        device = device or next(self.parameters()).device
+        h = torch.zeros(self.lstm.num_layers, batch_size, self.lstm.hidden_size, device=device)
+        c = torch.zeros(self.lstm.num_layers, batch_size, self.lstm.hidden_size, device=device)
+        return (h, c)
+
+    def forward_step(self, frame, hidden):
+        """
+        Inférence temps réel : une seule frame
+        Args:
+            frame: (batch_size, 3, H, W)
+            hidden: tuple (h, c)
+        Returns:
+            raycasts, speed, classification, (h, c)
+        """
+        # CNN sur une seule frame
+        features = self.cnn(frame)        # (B, 256, 1, 1)
+        features = features.view(frame.size(0), -1).unsqueeze(1)  # (B, 1, 256)
+
+        # Passer dans le LSTM
+        lstm_out, (h, c) = self.lstm(features, hidden)
+
+        # Utiliser la sortie du pas courant
+        out = lstm_out[:, -1, :]  # (B, hidden)
+        raycasts = self.raycast_head(out)
+        speed = self.speed_head(out)
+        classification = self.classification_head(out)
+        return raycasts, speed, classification, (h, c)
+
 
 
 if __name__ == "__main__":
