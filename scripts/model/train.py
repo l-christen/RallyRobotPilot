@@ -9,13 +9,47 @@ import os
 from model import CNNLSTMModel
 import pickle
 import lzma
+from collections import defaultdict
 
+def build_datasets(preproc_dir, train_ratio=0.8):
+    # Regroupement par record
+    record_groups = defaultdict(list)
 
+    for f in sorted(os.listdir(preproc_dir)):
+        if f.endswith(".pt"):
+            record_name = f.split("_")[0] + "_" + f.split("_")[1]
+            record_groups[record_name].append(os.path.join(preproc_dir, f))
+
+    # Liste des records
+    records = list(record_groups.keys())
+    records.sort()
+
+    # Split par record
+    n = len(records)
+    split = int(train_ratio * n)
+
+    train_records = records[:split]
+    val_records   = records[split:]
+
+    # Construire les file lists
+    train_files = []
+    val_files   = []
+
+    for r in train_records:
+        train_files.extend(record_groups[r])
+    for r in val_records:
+        val_files.extend(record_groups[r])
+
+    print("Records train :", train_records)
+    print("Records val   :", val_records)
+    print(f"Train files: {len(train_files)}")
+    print(f"Val files:   {len(val_files)}")
+
+    return VideoGameDataset(train_files), VideoGameDataset(val_files)
 
 class VideoGameDataset(Dataset):
-    def __init__(self, preproc_dir, transform=None):
-        self.files = [os.path.join(preproc_dir, f)
-                      for f in os.listdir(preproc_dir) if f.endswith(".pt")]
+    def __init__(self, file_list, transform=None):
+        self.files = file_list
         self.transform = transform
 
     def __len__(self):
@@ -28,41 +62,56 @@ class VideoGameDataset(Dataset):
         return images, raycasts, speed, directions
 
 
-
 class MultiTaskLoss(nn.Module):
     """
-    Loss multi-tâches avec pondération automatique (uncertainty weighting)
+    Loss multi-tâches :
+    - Raycasts      : régression MSE
+    - Speed         : régression MSE
+    - Classification: multi-label BCE
+
+    → Uncertainty weighting (Kendall & Gal 2018)
+    → + Boost manuel de la classification (commandes)
     """
-    def __init__(self):
-        super(MultiTaskLoss, self).__init__()
-        # Paramètres apprenables pour la pondération
+
+    def __init__(self, command_weight=30.0):
+        super().__init__()
+
+        # Pondération automatique (apprise)
         self.log_var_raycast = nn.Parameter(torch.zeros(1))
         self.log_var_speed = nn.Parameter(torch.zeros(1))
         self.log_var_classification = nn.Parameter(torch.zeros(1))
-        
+
+        # Losses de base
         self.mse = nn.MSELoss()
         self.bce = nn.BCEWithLogitsLoss()
-    
-    def forward(self, pred_raycasts, pred_speed, pred_classification, 
+
+        # Pondération manuelle des commandes
+        self.command_weight = command_weight
+
+
+    def forward(self, pred_raycasts, pred_speed, pred_classification,
                 target_raycasts, target_speed, target_classification):
-        # Loss pour raycasts (régression)
+
+        # --- Losses brutes ---
         loss_raycast = self.mse(pred_raycasts, target_raycasts)
-        
-        # Loss pour vitesse (régression)
         loss_speed = self.mse(pred_speed, target_speed)
-        
-        # Loss pour classification (multi-label)
-        loss_classification = self.bce(pred_classification, target_classification)
-        
-        # Pondération automatique avec uncertainty
+
+        # classification boostée
+        loss_classification = self.command_weight * self.bce(
+            pred_classification, target_classification
+        )
+
+        # --- Uncertainty weighting ---
         precision_raycast = torch.exp(-self.log_var_raycast)
         precision_speed = torch.exp(-self.log_var_speed)
         precision_classification = torch.exp(-self.log_var_classification)
-        
-        total_loss = (precision_raycast * loss_raycast + self.log_var_raycast +
-                      precision_speed * loss_speed + self.log_var_speed +
-                      precision_classification * loss_classification + self.log_var_classification)
-        
+
+        total_loss = (
+            precision_raycast * loss_raycast + self.log_var_raycast +
+            precision_speed * loss_speed + self.log_var_speed +
+            precision_classification * loss_classification + self.log_var_classification
+        )
+
         return total_loss, loss_raycast, loss_speed, loss_classification
 
 
@@ -145,7 +194,7 @@ def validate(model, dataloader, criterion, device):
 
 def main():
     # Hyperparamètres
-    BATCH_SIZE = 8
+    BATCH_SIZE = 128
     NUM_EPOCHS = 50
     LEARNING_RATE = 1e-4
     # app = Ursina(size=(160, 224)), keep this image size
@@ -162,11 +211,7 @@ def main():
     print(f"Using device: {device}")
     
     # Datasets
-    dataset = VideoGameDataset(DATA_PATH)
-
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    train_dataset, val_dataset = build_datasets(DATA_PATH, train_ratio=0.8)
     
     train_loader = DataLoader(
         train_dataset, 
@@ -188,10 +233,10 @@ def main():
     print(f"Nombre de paramètres: {model.get_num_parameters():,}")
     
     # Loss et optimizer
-    criterion = MultiTaskLoss().to(device)
+    criterion = MultiTaskLoss(command_weight=30.0).to(device)
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', factor=0.5, patience=5, verbose=True
+        optimizer, mode='min', factor=0.5, patience=5
     )
     
     # Gradient scaler pour mixed precision

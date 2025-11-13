@@ -1,176 +1,89 @@
 import torch
 import torch.nn as nn
 
+
 class CNNLSTMModel(nn.Module):
     """
-    Modèle CNN + LSTM pour prédire:
-    - 15 raycasts
-    - 1 vitesse
-    - 4 classifications (w, a, s, d)
-    
-    Entrée: séquence de 15 images
+    Modèle CNN + LSTM pour séquence de 15 images.
+    Pas d'état caché externe → le LSTM traite toute la séquence à chaque forward.
+    Compatible avec le moteur d'inférence basé sur buffer (seq_len=15).
     """
-    def __init__(self, img_height=160, img_width=224, lstm_hidden=256, lstm_layers=2):
-        super(CNNLSTMModel, self).__init__()
-        
-        # CNN Feature Extractor (inspired by small ResNet)
+
+    def __init__(self, img_height=224, img_width=160, lstm_hidden=256, lstm_layers=2):
+        super().__init__()
+
+        # --- CNN feature extractor ---
         self.cnn = nn.Sequential(
-            # Block 1
-            nn.Conv2d(3, 32, kernel_size=7, stride=2, padding=3),
+            nn.Conv2d(3, 32, 7, stride=2, padding=3),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
-            
-            # Block 2
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(64, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            
-            # Block 3
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            
-            # Block 4
-            nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(256, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            
-            # Global Average Pooling
+            nn.MaxPool2d(3, stride=2, padding=1),
+
+            nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, stride=2),
+
+            nn.Conv2d(64, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, stride=2),
+
+            nn.Conv2d(128, 256, 3, padding=1), nn.BatchNorm2d(256), nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, 3, padding=1), nn.BatchNorm2d(256), nn.ReLU(inplace=True),
+
             nn.AdaptiveAvgPool2d((1, 1))
         )
-        
-        self.cnn_output_dim = 256
-        
-        # LSTM pour capturer la temporalité
+
+        self.feature_dim = 256
+
+        # --- LSTM ---
         self.lstm = nn.LSTM(
-            input_size=self.cnn_output_dim,
+            input_size=self.feature_dim,
             hidden_size=lstm_hidden,
             num_layers=lstm_layers,
             batch_first=True,
-            dropout=0.3 if lstm_layers > 1 else 0
+            dropout=0.3 if lstm_layers > 1 else 0,
         )
-        
-        # Têtes de prédiction
-        # 1. Raycasts (15 valeurs de régression)
+
+        # --- Prediction heads ---
         self.raycast_head = nn.Sequential(
-            nn.Linear(lstm_hidden, 128),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.3),
-            nn.Linear(128, 15)
+            nn.Linear(lstm_hidden, 128), nn.ReLU(), nn.Linear(128, 15)
         )
-        
-        # 2. Vitesse (1 valeur de régression)
+
         self.speed_head = nn.Sequential(
-            nn.Linear(lstm_hidden, 64),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.3),
-            nn.Linear(64, 1)
+            nn.Linear(lstm_hidden, 64), nn.ReLU(), nn.Linear(64, 1)
         )
-        
-        # 3. Classification multi-labels (w, a, s, d)
-        self.classification_head = nn.Sequential(
-            nn.Linear(lstm_hidden, 64),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.3),
-            nn.Linear(64, 4)
+
+        self.class_head = nn.Sequential(
+            nn.Linear(lstm_hidden, 64), nn.ReLU(), nn.Linear(64, 4)
         )
-        
+
+    # --------------------------------------------------------------------------------------------------
+
     def forward(self, x):
         """
-        Args:
-            x: Tensor de forme (batch_size, seq_len=15, channels=3, height, width)
-        
-        Returns:
-            raycasts: (batch_size, 15)
-            speed: (batch_size, 1)
-            classification: (batch_size, 4)
+        x : (B, 15, 3, 224, 160)
         """
-        batch_size, seq_len, c, h, w = x.size()
-        
-        # Extraire les features CNN pour chaque frame
-        cnn_features = []
-        for t in range(seq_len):
-            frame = x[:, t, :, :, :]  # (batch_size, 3, h, w)
-            features = self.cnn(frame)  # (batch_size, 256, 1, 1)
-            features = features.view(batch_size, -1)  # (batch_size, 256)
-            cnn_features.append(features)
-        
-        # Stack les features temporelles
-        cnn_features = torch.stack(cnn_features, dim=1)  # (batch_size, seq_len, 256)
-        
-        # Passer par le LSTM
-        lstm_out, (h_n, c_n) = self.lstm(cnn_features)
-        
-        # Utiliser la dernière sortie du LSTM
-        last_output = lstm_out[:, -1, :]  # (batch_size, lstm_hidden)
-        
-        # Prédictions pour chaque tête
-        raycasts = self.raycast_head(last_output)  # (batch_size, 15)
-        speed = self.speed_head(last_output)  # (batch_size, 1)
-        classification_logits = self.classification_head(last_output)  # (batch_size, 4)
-        
-        return raycasts, speed, classification_logits
-    
+        B, T, C, H, W = x.shape
+
+        cnn_feats = []
+
+        for i in range(T):
+            f = self.cnn(x[:, i])              # (B,256,1,1)
+            f = f.view(B, -1)                  # (B,256)
+            cnn_feats.append(f)
+
+        seq = torch.stack(cnn_feats, dim=1)    # (B,T,256)
+
+        lstm_out, _ = self.lstm(seq)           # (B,T,H)
+        last = lstm_out[:, -1]                 # (B,H)
+
+        ray = self.raycast_head(last)          # (B,15)
+        spd = self.speed_head(last)            # (B,1)
+        logits = self.class_head(last)         # (B,4)
+
+        return ray, spd, logits
+
+    # --------------------------------------------------------------------------------------------------
+
     def get_num_parameters(self):
-        """Retourne le nombre de paramètres du modèle"""
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
-    
-    def init_hidden(self, batch_size=1, device=None):
-        """Initialise les états cachés du LSTM (h, c)"""
-        device = device or next(self.parameters()).device
-        h = torch.zeros(self.lstm.num_layers, batch_size, self.lstm.hidden_size, device=device)
-        c = torch.zeros(self.lstm.num_layers, batch_size, self.lstm.hidden_size, device=device)
-        return (h, c)
-
-    def forward_step(self, frame, hidden):
-        """
-        Inférence temps réel : une seule frame
-        Args:
-            frame: (batch_size, 3, H, W)
-            hidden: tuple (h, c)
-        Returns:
-            raycasts, speed, classification, (h, c)
-        """
-        # CNN sur une seule frame
-        features = self.cnn(frame)        # (B, 256, 1, 1)
-        features = features.view(frame.size(0), -1).unsqueeze(1)  # (B, 1, 256)
-
-        # Passer dans le LSTM
-        lstm_out, (h, c) = self.lstm(features, hidden)
-
-        # Utiliser la sortie du pas courant
-        out = lstm_out[:, -1, :]  # (B, hidden)
-        raycasts = self.raycast_head(out)
-        speed = self.speed_head(out)
-        classification = self.classification_head(out)
-        return raycasts, speed, classification, (h, c)
-
-
-
-if __name__ == "__main__":
-    # Test du modèle
-    model = CNNLSTMModel(img_height=224, img_width=224)
-    print(f"Nombre de paramètres: {model.get_num_parameters():,}")
-    
-    # Test avec un batch
-    batch_size = 4
-    seq_len = 15
-    dummy_input = torch.randn(batch_size, seq_len, 3, 224, 224)
-    
-    raycasts, speed, classification = model(dummy_input)
-    
-    print(f"Raycasts shape: {raycasts.shape}")  # (4, 15)
-    print(f"Speed shape: {speed.shape}")  # (4, 1)
-    print(f"Classification shape: {classification.shape}")  # (4, 4)
