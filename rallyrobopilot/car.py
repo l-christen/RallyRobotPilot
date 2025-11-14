@@ -6,6 +6,7 @@ from ursina import curve
 from .particles import Particles, TrailRenderer
 from math import pow, atan2
 import json
+import math
 
 sign = lambda x: -1 if x < 0 else (1 if x > 0 else 0)
 Text.default_resolution = 1080 * Text.size
@@ -106,6 +107,7 @@ class Car(Entity):
         self.laps = 0
         self.laps_hs = 0
         self.anti_cheat = 1
+        self.lap_progress = 0
 
         # Bools
         self.driving = False
@@ -281,16 +283,55 @@ class Car(Entity):
 
 
     def update(self):
+        # --- 1. SET FIXED TIME & INCREMENT TIMER (FIX #1) ---
         # fixing the time.dt value for more consistent physics : 0.025s per frame (40fps)
         time.dt = 1/40
+        if self.timer_running:
+            self.count += time.dt
 
+        # --- 2. STANDARD CHECKS ---
         # Exit if esc pressed.
         if held_keys["escape"]:
             quit()
 
         self.check_respawn()
 
-        #   Process inputs & update speed
+        # --- 3. CHECKPOINT LOGIC (FIX #2) ---
+        # We are replacing the complex self.simple_intersects()
+        # with a simple 2D distance check.
+
+        if self.track and self.track.checkpoints:
+            # Get the next checkpoint the car needs to hit
+            next_cp_index = self.track.current_checkpoint
+            
+            if next_cp_index < len(self.track.checkpoints):
+                next_cp_entity = self.track.checkpoints[next_cp_index]
+                
+                # Get car and checkpoint 2D positions
+                car_pos_2d = (self.x, self.z)
+                cp_pos_2d = (next_cp_entity.x, next_cp_entity.z)
+                
+                # Calculate the 2D distance
+                distance = math.dist(car_pos_2d, cp_pos_2d)
+                
+                # Use a 10-meter "radius" for the checkpoint
+                CHECKPOINT_RADIUS = 10 
+                
+                if distance < CHECKPOINT_RADIUS:
+                    # HIT! Advance to the next checkpoint
+                    self.track.current_checkpoint += 1
+                    self.lap_progress = self.track.current_checkpoint
+                    print(f"Hit checkpoint {self.lap_progress}!")
+
+                    # Check if lap is complete
+                    if self.track.current_checkpoint >= len(self.track.checkpoints):
+                        print("--- LAP COMPLETE ---")
+                        self.track.current_checkpoint = 0 # Reset for next lap
+                        self.laps += 1 
+                        self.reset_timer()
+            
+        # --- 4. PROCESS INPUTS & PHYSICS (Original Code) ---
+        #   Process inputs & update speed
         if held_keys[self.controls[0]] or held_keys["up arrow"]:
             self.speed += self.acceleration * time.dt
             self.driving = True
@@ -313,7 +354,7 @@ class Car(Entity):
         else:
             self.braking = False
 
-        #   Check physical constrains
+        #   Check physical constrains
         if self.speed > self.topspeed:
             self.speed = self.topspeed
         elif self.speed < self.minspeed:
@@ -323,23 +364,23 @@ class Car(Entity):
             turn_right = held_keys[self.controls[3]] or held_keys["right arrow"]
             rotation_sign = (1 if turn_right else -1)
 
-            #   Max angular speed
+            #   Max angular speed
             normalized_speed = abs(self.speed / self.topspeed)
-            #   function to map unit speed (between 0 and max speed) to a rotation coefficient space.
-            #   Rotation radius is function of speed
+            #   function to map unit speed (between 0 and max speed) to a rotation coefficient space.
+            #   Rotation radius is function of speed
             def rotation_radius(normalized_speed):
                 smallest_radius = 1.5
                 biggest_radius = 25
                 return pow(normalized_speed, 1.5) * (biggest_radius-smallest_radius) + smallest_radius
 
-            #   Get rotation radius
+            #   Get rotation radius
             radius = rotation_radius(normalized_speed)
 
-            #   Get travelled distance
+            #   Get travelled distance
             travelled_dist = abs(self.speed * time.dt)
-            #   Project on circle radius & compute angle variation seen from the center of the circle
+            #   Project on circle radius & compute angle variation seen from the center of the circle
             travelled_circle_center_angle = travelled_dist / radius
-            #   Compute variation in Y & X
+            #   Compute variation in Y & X
             dx = 1 - cos(travelled_circle_center_angle)
             dy = sin(travelled_circle_center_angle)
 
@@ -347,28 +388,27 @@ class Car(Entity):
 
             self.rotation_y += da * rotation_sign
 
-        #   Integrate speed into movement
+        #   Integrate speed into movement
         total_dist_to_move = self.speed * time.dt
 
-        #   Check collision via recast
+        #   Check collision via recast
 
-
-        #   Return residual distance to travel and residual speed.
+        #   Return residual distance to travel and residual speed.
         def move_car(distance_to_travel, direction):
             front_collision = boxcast(origin = self.world_position, direction = self.forward * direction, thickness = (0.1, 0.1), distance = self.scale_x + distance_to_travel, ignore = [self, ])
 
-            #   Detect collision
+            #   Detect collision
             if front_collision.distance < self.scale_x + distance_to_travel:
                 free_dist = front_collision.distance - self.scale_x + distance_to_travel
 
-                #   cancel speed going directly into the obstacle
+                #   cancel speed going directly into the obstacle
                 next_forward = self.forward - (self.forward.dot(front_collision.world_normal)) * front_collision.world_normal
                 self.speed = self.speed * (0.5 + 0.5 * (self.forward.dot(front_collision.world_normal))) # Loose half speed on collision and some depending on the angle
 
                 self.rotation_y = atan2(next_forward[0], next_forward[2]) / 3.14159 * 180
                 dist_left_to_travel = distance_to_travel - free_dist
 
-                #   Move car away from obstacle to prevent overlap due to *¦@+!? physics system
+                #   Move car away from obstacle to prevent overlap due to *¦@+!? physics system
                 OBSTACLE_DISPLACEMENT_MARGIN = 1
                 self.x += (front_collision.world_normal * OBSTACLE_DISPLACEMENT_MARGIN).x
                 self.z += (front_collision.world_normal * OBSTACLE_DISPLACEMENT_MARGIN).z
@@ -386,7 +426,8 @@ class Car(Entity):
 
             if total_dist_to_move <= 0:
                 break
-
+        
+        # --- 5. UPDATE CAMERA (Original Code) ---
         self.c_pivot.position = self.position
         self.c_pivot.rotation_y = self.rotation_y
         self.update_camera()
@@ -402,14 +443,24 @@ class Car(Entity):
         #y_ray = raycast(origin = self.reset_position, direction = (0,-1,0), ignore = [self,])
         #self.y = y_ray.world_point.y + 1.4
         print(self.reset_orientation)
-        self.rotation_y = self.reset_orientation[1]
+        self.rotation_y = 90 # NEW - Force car to face positive X
+        print(f"reseting at {str(self.position)} --> {self.rotation_y}")
 
         print("reseting at", str(self.position), " --> ", self.rotation_y)
 
         camera.world_rotation_y = self.rotation_y
         self.speed = 0
         self.velocity_y = 0
-        self.timer_running = False
+        
+        # --- FIX #1: START THE TIMER ---
+        self.timer_running = True
+        self.count = 0.0 # Also reset the count to 0
+        
+        # --- FIX #2: RESET CHECKPOINTS ---
+        self.lap_progress = 0
+        if self.track:
+            self.track.current_checkpoint = 0
+            
         for trail in self.trails:
             if trail.trailing:
                 trail.end_trail()

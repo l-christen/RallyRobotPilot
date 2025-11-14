@@ -28,6 +28,9 @@ class Track(Entity):
     def __init__(self, track_name):
 
         self.track_name = track_name
+        self.checkpoints = []       # Will hold the invisible checkpoint Entities
+        self.current_checkpoint = 0 # The index of the next checkpoint to hit
+        self.load_checkpoints()
         self.data = load_track_metadata(track_name)
 
         # Find assets paths.
@@ -73,6 +76,37 @@ class Track(Entity):
         self.unlocked = False
 
         self.deactivate()
+    
+    def load_checkpoints(self):
+        """
+        Loads checkpoint data from a JSON file and creates invisible
+        trigger entities in the world.
+        """
+        # Assumes assets folder is at the project root
+        checkpoint_file = f'assets/{self.track_name}/SimpleTrack_checkpoints.json'
+        print(f"Attempting to load checkpoints from: {checkpoint_file}")
+        
+        try:
+            with open(checkpoint_file) as f:
+                data = json.load(f)
+                
+                for cp in data['checkpoints']:
+                    # Create an invisible, collidable "gate"
+                    e = Entity(
+                        model = 'quad', # Simple plane
+                        scale = (15, 15), # 15m x 15m trigger area
+                        position = tuple(cp['position']),
+                        collider = 'box',
+                        visible = False # Set to True for debugging
+                    )
+                    self.checkpoints.append(e)
+                    
+            print(f"Successfully loaded {len(self.checkpoints)} checkpoints.")
+
+        except FileNotFoundError:
+            print(f"WARNING: No checkpoint file found at {checkpoint_file}. GA progress will not work.")
+        except Exception as e:
+            print(f"ERROR loading checkpoints: {e}")
 
     def deactivate(self):
         for i in self.track:

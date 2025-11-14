@@ -131,7 +131,10 @@ class RemoteController(Entity):
                 'raycast_distances 11': raycast_distances[11],
                 'raycast_distances 12': raycast_distances[12],
                 'raycast_distances 13': raycast_distances[13],
-                'raycast_distances 14': raycast_distances[14]
+                'raycast_distances 14': raycast_distances[14],
+                'lap_progress': self.car.lap_progress,
+                'current_lap_time': self.car.count, 
+                'laps': self.car.laps
                 }
 
     def process_remote_commands(self):
