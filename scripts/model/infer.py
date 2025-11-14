@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from model.model import ResNetLiteLSTM
-from model.preprocess import scale_image
+from preprocess import scale_image
 
 
 def load_model(checkpoint_path, img_height=224, img_width=160, device='cuda'):
