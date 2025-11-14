@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from model.model import CNNLSTMModel
+from model.model import ResNetLiteLSTM
 from model.preprocess import scale_image
 
 
@@ -17,7 +17,7 @@ def load_model(checkpoint_path, img_height=224, img_width=160, device='cuda'):
     Returns:
         model: Modèle chargé en mode eval
     """
-    model = CNNLSTMModel(img_height=img_height, img_width=img_width)
+    model = ResNetLiteLSTM()
     checkpoint = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.to(device)
@@ -37,7 +37,7 @@ class SequenceInferenceEngine:
     Gère le buffering de séquences et l'inférence avec gestion du warm-up.
     """
     
-    def __init__(self, model, seq_len=15, device='cuda'):
+    def __init__(self, model, seq_len=40, device='cuda'):
         """
         Args:
             model: Modèle CNNLSTMModel déjà chargé
@@ -67,7 +67,7 @@ class SequenceInferenceEngine:
             bool: True si le buffer est prêt pour l'inférence
         """
         # Prétraiter l'image
-        img_tensor = torch.tensor(scale_image(image), dtype=torch.float32)
+        img_tensor = torch.from_numpy(scale_image(image)).float()
         
         # Ajouter au buffer
         self.frame_buffer.append(img_tensor)
@@ -156,7 +156,7 @@ class SequenceInferenceEngine:
         }
 
 
-def create_inference_engine(checkpoint_path, seq_len=15, device='cuda'):
+def create_inference_engine(checkpoint_path, seq_len=40, device='cuda'):
     """
     Fonction helper pour créer un moteur d'inférence complet.
     

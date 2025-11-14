@@ -6,7 +6,7 @@ from torch.cuda.amp import GradScaler, autocast
 import numpy as np
 from tqdm import tqdm
 import os
-from model import CNNLSTMModel
+from model import ResNetLiteLSTM
 import pickle
 import lzma
 from collections import defaultdict
@@ -229,7 +229,7 @@ def main():
     )
     
     # Modèle
-    model = CNNLSTMModel(img_height=IMG_HEIGHT, img_width=IMG_WIDTH).to(device)
+    model = ResNetLiteLSTM(lstm_hidden=256, lstm_layers=1).to(device)
     print(f"Nombre de paramètres: {model.get_num_parameters():,}")
     
     # Loss et optimizer

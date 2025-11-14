@@ -1,89 +1,88 @@
 import torch
 import torch.nn as nn
+from torchvision.models import resnet18
 
 
-class CNNLSTMModel(nn.Module):
+class ResNetLiteLSTM(nn.Module):
     """
-    Modèle CNN + LSTM pour séquence de 15 images.
-    Pas d'état caché externe → le LSTM traite toute la séquence à chaque forward.
-    Compatible avec le moteur d'inférence basé sur buffer (seq_len=15).
+    CNN (ResNet18 tronqué) + LSTM
+    Optimisé pour séquences longues (40 frames) et images 3×224×160.
     """
 
-    def __init__(self, img_height=224, img_width=160, lstm_hidden=256, lstm_layers=2):
+    def __init__(self, lstm_hidden=256, lstm_layers=1):
         super().__init__()
 
-        # --- CNN feature extractor ---
+        # ----------- CNN FEATURE EXTRACTOR (ResNet18 sans les blocs lourds) -----------
+        base = resnet18(weights=None)
+
+        # On garde juste les 3 premiers blocs (rapide + pas trop lourd)
         self.cnn = nn.Sequential(
-            nn.Conv2d(3, 32, 7, stride=2, padding=3),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(3, stride=2, padding=1),
-
-            nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True),
-            nn.Conv2d(64, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, stride=2),
-
-            nn.Conv2d(64, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, stride=2),
-
-            nn.Conv2d(128, 256, 3, padding=1), nn.BatchNorm2d(256), nn.ReLU(inplace=True),
-            nn.Conv2d(256, 256, 3, padding=1), nn.BatchNorm2d(256), nn.ReLU(inplace=True),
-
-            nn.AdaptiveAvgPool2d((1, 1))
+            base.conv1,     # (B,64,H/2,W/2)
+            base.bn1,
+            base.relu,
+            base.maxpool,
+            base.layer1,    # (B,64,H/4,W/4)
+            base.layer2     # (B,128,H/8,W/8)
         )
 
-        self.feature_dim = 256
+        self.pool = nn.AdaptiveAvgPool2d((1,1))
+        self.feature_dim = 128
 
-        # --- LSTM ---
+        # Projection en embedding 128
+        self.embed = nn.Linear(self.feature_dim, 128)
+        self.embed_dim = 128
+
+        # ----------- LSTM TEMPORAL MODELING -----------
         self.lstm = nn.LSTM(
-            input_size=self.feature_dim,
+            input_size=self.embed_dim,
             hidden_size=lstm_hidden,
             num_layers=lstm_layers,
             batch_first=True,
-            dropout=0.3 if lstm_layers > 1 else 0,
+            dropout=0.2 if lstm_layers > 1 else 0,
         )
 
-        # --- Prediction heads ---
+        # ----------- HEADS (identiques à ton modèle) -----------
         self.raycast_head = nn.Sequential(
-            nn.Linear(lstm_hidden, 128), nn.ReLU(), nn.Linear(128, 15)
+            nn.Linear(lstm_hidden, 128),
+            nn.ReLU(),
+            nn.Linear(128, 15)
         )
 
         self.speed_head = nn.Sequential(
-            nn.Linear(lstm_hidden, 64), nn.ReLU(), nn.Linear(64, 1)
+            nn.Linear(lstm_hidden, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1)
         )
 
         self.class_head = nn.Sequential(
-            nn.Linear(lstm_hidden, 64), nn.ReLU(), nn.Linear(64, 4)
+            nn.Linear(lstm_hidden, 64),
+            nn.ReLU(),
+            nn.Linear(64, 4)
         )
 
-    # --------------------------------------------------------------------------------------------------
 
     def forward(self, x):
         """
-        x : (B, 15, 3, 224, 160)
+        x : (B, T, C, H, W)
         """
         B, T, C, H, W = x.shape
+        feats = []
 
-        cnn_feats = []
+        for t in range(T):
+            f = self.cnn(x[:, t])        # (B,128,H',W')
+            f = self.pool(f).view(B, -1) # (B,128)
+            f = self.embed(f)            # (B,128)
+            feats.append(f)
 
-        for i in range(T):
-            f = self.cnn(x[:, i])              # (B,256,1,1)
-            f = f.view(B, -1)                  # (B,256)
-            cnn_feats.append(f)
+        seq = torch.stack(feats, dim=1)  # (B,T,128)
+        out, _ = self.lstm(seq)
+        last = out[:, -1]
 
-        seq = torch.stack(cnn_feats, dim=1)    # (B,T,256)
-
-        lstm_out, _ = self.lstm(seq)           # (B,T,H)
-        last = lstm_out[:, -1]                 # (B,H)
-
-        ray = self.raycast_head(last)          # (B,15)
-        spd = self.speed_head(last)            # (B,1)
-        logits = self.class_head(last)         # (B,4)
-
-        return ray, spd, logits
-
-    # --------------------------------------------------------------------------------------------------
+        return (
+            self.raycast_head(last),
+            self.speed_head(last),
+            self.class_head(last)
+        )
 
     def get_num_parameters(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)

@@ -22,7 +22,7 @@ def scale_raycasts(raycasts):
 # --- CONFIG ---
 RAW_DIR = "data"             # dossier avec record_*.npz
 OUT_DIR = "preprocessed"     # dossier de sortie .pt
-SEQ_LEN = 15
+SEQ_LEN = 40
 SKIP = 2
 
 os.makedirs(OUT_DIR, exist_ok=True)

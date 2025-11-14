@@ -1,12 +1,9 @@
-flask==3.0.3
-imageio==2.35.1
+numpy==1.26.4
 matplotlib>=3.10.7
-numpy>=2.1.0
-opencv-python>=4.12.0.88
-psd-tools3==1.8.2
-pyqt6>=6.10.0
-screeninfo==0.8.1
+opencv-python>=4.7.0.72
 setuptools>=80.9.0
 tqdm>=4.67.1
 ursina==5.0.0
 ursinanetworking==2.1.4
+torch==2.2.2+cu121
+torchvision==0.17.2
