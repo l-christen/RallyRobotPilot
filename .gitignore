@@ -7,3 +7,4 @@ checkpoints/
 .vscode/
 scripts/__pycache__/
 scripts/model/__pycache__/
+data_10Hz/

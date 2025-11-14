@@ -149,7 +149,7 @@ class Car(Entity):
         self._record_period = 0.1         # 10 Hz
         self._record_start_time = 0.0     # temps de début d'enregistrement
         self._record_frame_count = 0      # compteur de frames enregistrées
-        self._next_record_time = 0.0      # prochain tick absolu
+        # self._next_record_time = 0.0      # prochain tick absolu
         self._record_dir = "data"
         os.makedirs(self._record_dir, exist_ok=True)
 
@@ -164,7 +164,7 @@ class Car(Entity):
         # Initialisation du timing absolu
         self._record_start_time = time.time()
         self._record_frame_count = 0
-        self._next_record_time = self._record_start_time + self._record_period
+        #self._next_record_time = self._record_start_time + self._record_period
         
         print(f"[+] Recording {'enabled' if enabled else 'disabled'} at {period_hz} Hz")
 
@@ -203,6 +203,7 @@ class Car(Entity):
 
     def check_respawn(self):
         if held_keys["g"]:
+            self._record_buffer = []
             self.reset_car()
         if held_keys["v"]:
             if self.multiray_sensor:
@@ -296,13 +297,15 @@ class Car(Entity):
         if not self._record_enabled:
             return
 
+
         now = time.time()
-        if now < self._next_record_time:
-            return
+        
+        # if now < self._next_record_time:
+        #    return
 
         # Incrémenter le compteur et calculer le prochain tick absolu
         self._record_frame_count += 1
-        self._next_record_time = self._record_start_time + (self._record_frame_count * self._record_period)
+        # self._next_record_time = self._record_start_time + (self._record_frame_count * self._record_period)
 
         snap = SensingSnapshot()
 
