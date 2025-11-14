@@ -84,7 +84,7 @@ class RemoteCommandParser:
         self.pending_data += data
         next_semicol = self.pending_data.find(b';')
         while next_semicol > 0:
-            command_string = self.pending_data[:next_semicol]
+            command_string = self.pending_data[:next_semicol].strip()
             next_space = command_string.find(b' ')
             command_words = []
             while next_space > 0:

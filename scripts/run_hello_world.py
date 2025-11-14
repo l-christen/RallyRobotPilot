@@ -6,8 +6,20 @@ DELTA_T = 0.1  # Must match the 0.1s (10Hz) we discussed
 GENOME_DURATION_SEC = 10
 GENOME_LENGTH = int(GENOME_DURATION_SEC / DELTA_T)
 
-# A simple "go straight" genome
-hello_world_genome = ['push forward;'] * GENOME_LENGTH
+# --- A "smarter" genome to test the turn ---
+# 1. Go straight for 3 seconds (30 steps) to build speed
+genome_straight = ['push forward;'] * 30
+
+# 2. Turn right for 2 seconds (20 steps)
+# We use both commands, separated by a space, as defined in remote_commands.py
+genome_turn_right = ['push forward; push right;'] * 20
+
+# 3. Go straight again for 5 seconds (50 steps)
+genome_rest = ['push forward;'] * 50
+
+# Combine them into our new test genome
+hello_world_genome = genome_straight + genome_turn_right + genome_rest
+GENOME_LENGTH = len(hello_world_genome) # Update the length
 
 # This is the address of your Docker container
 BASE_URL = "http://localhost:5000"
