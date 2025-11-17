@@ -2,8 +2,6 @@ import torch
 import numpy as np
 from model.model import ResNetLiteLSTM
 
-# TODO : Add a cache for the embeding of frames already seen.
-
 def scale_image(img):
     """
     img : torch.Tensor ou np.ndarray, shape (C,H,W)
@@ -87,73 +85,71 @@ class SequenceInferenceEngine:
     
     def add_frame(self, image):
         """
-        Ajoute une frame au buffer.
-        
+        Ajoute une frame au buffer. Au lieu de stocker l'image,
+        on calcule directement son embedding CNN et on le stocke.
+
         Args:
-            image: Image numpy (H, W, 3) en uint8 [0-255]
-        
+            image: numpy (H,W,3) uint8
+
         Returns:
-            bool: True si le buffer est prêt pour l'inférence
+            bool: True si la séquence est prête pour prédiction
         """
-        # Prétraiter l'image (transpose + scale)
-        image = np.transpose(image, (2, 0, 1))  # (C,H,W)
-        img_tensor = torch.from_numpy(scale_image(image)).float()
-        
-        # Ajouter au buffer
-        self.frame_buffer.append(img_tensor)
+
+        # ----------- Prétraitement minimal -----------
+        image = np.transpose(image, (2, 0, 1))         # (C,H,W)
+        img_tensor = torch.from_numpy(scale_image(image)).float().to(self.device)
+        img_tensor = img_tensor.unsqueeze(0)           # (1,C,H,W)
+
+        # ----------- Embedding CNN unique -----------
+        with torch.no_grad():
+            embed = self.model.forward_cnn(img_tensor) # (1,128)
+
+        # On stocke l'embedding uniquement (pas les images)
+        self.frame_buffer.append(embed.squeeze(0))     # (128,)
         self.total_frames += 1
-        
-        # Maintenir la taille du buffer
+
+        # ----------- Fenêtre glissante -----------
         if len(self.frame_buffer) > self.seq_len:
             self.frame_buffer.pop(0)
-        
-        # Vérifier si on est prêt
+
+        # ----------- Check readiness -----------
         self.is_ready = len(self.frame_buffer) == self.seq_len
-        
         return self.is_ready
-    
+
+
+
     @torch.no_grad()
     def predict(self, threshold=0.5):
         """
-        Effectue une prédiction sur la séquence actuelle.
-        
-        Args:
-            threshold: Seuil de décision pour la classification binaire
-        
-        Returns:
-            dict: {
-                'controls': [forward, back, left, right] (bool),
-                'probabilities': [p_fwd, p_back, p_left, p_right] (float),
-                'raycasts': array de 15 distances,
-                'speed': vitesse prédite,
-                'ready': bool indiquant si la prédiction est fiable
-            }
-            ou None si pas assez de frames
+        Prédiction basée sur les embeddings déjà en cache.
         """
+
         if not self.is_ready:
             return None
+
+        # ----------- Stack embeddings : (T,128) → (1,T,128) -----------
+        seq = torch.stack(self.frame_buffer).unsqueeze(0).to(self.device)
+
+        # ----------- LSTM puis heads (CNN déjà fait dans add_frame) -----------
+        last = self.model.forward_lstm(seq)          # (1,hidden)
+        pred_ray, pred_speed, pred_class = self.model.forward_heads(last)
         
-        # Stack en séquence: (seq_len, 3, H, W) → (1, seq_len, 3, H, W)
-        sequence = torch.stack(self.frame_buffer).unsqueeze(0).to(self.device)
-        
-        # Forward pass
-        pred_raycasts, pred_speed, pred_class = self.model(sequence)
-        
-        # Post-traitement
-        probabilities = torch.sigmoid(pred_class).cpu().numpy().flatten()
+        # ----------- Post-traitement -----------
+        probabilities = torch.softmax(pred_class, dim=-1).cpu().numpy().flatten()
+        print(probabilities)
         controls = (probabilities > threshold).tolist()
-        
-        raycasts = pred_raycasts.cpu().numpy().flatten()
+
+        raycasts = pred_ray.cpu().numpy().flatten()
         speed = pred_speed.cpu().item()
-        
+
         self.total_inferences += 1
-        
+
         return {
-            'controls': [bool(c) for c in controls],  # [fwd, back, left, right]
-            'probabilities': probabilities.tolist(),
-            'raycasts': raycasts,
-            'speed': speed,
-            'ready': True
+            "controls": [bool(c) for c in controls],
+            "probabilities": probabilities.tolist(),
+            "raycasts": raycasts,
+            "speed": speed,
+            "ready": True,
         }
     
     def predict_controls_only(self, threshold=0.5):

@@ -2,15 +2,13 @@ import torch
 import torch.nn as nn
 from torchvision.models import resnet18
 
-# TODO : Add 2 separated forward methods: one for CNN feature extraction only, one for LSTM + heads.
-
 class ResNetLiteLSTM(nn.Module):
     """
     CNN (ResNet18 tronqué) + LSTM
     Optimisé pour séquences longues (40 frames) et images 3×224×160.
     """
 
-    def __init__(self, lstm_hidden=256, lstm_layers=1):
+    def __init__(self, lstm_hidden=64, lstm_layers=1):
         super().__init__()
 
         # ----------- CNN FEATURE EXTRACTOR (ResNet18 sans les blocs lourds) -----------
@@ -87,6 +85,22 @@ class ResNetLiteLSTM(nn.Module):
 
     def get_num_parameters(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
+    
+    def forward_cnn(self, frame):
+        f = self.cnn(frame)
+        f = self.pool(f).view(frame.size(0), -1)
+        return self.embed(f)
+
+    def forward_lstm(self, seq):
+        out, _ = self.lstm(seq)  # seq: (B,T,128)
+        return out[:, -1]        # last timestep
+
+    def forward_heads(self, last):
+        return (
+            self.raycast_head(last),
+            self.speed_head(last),
+            self.class_head(last),
+        )
     
 if __name__ == "__main__":
     model = ResNetLiteLSTM()

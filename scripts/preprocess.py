@@ -173,6 +173,7 @@ def process_record(path, kept):
         flip_combo = flip_controls(combo)
         flip_controls_tensor = torch.tensor(flip_combo, dtype=torch.float32)
 
+        kept[flip_combo] += 1
 
         # empilement final
         sequences.append((images, raycasts, speed, target_controls))
