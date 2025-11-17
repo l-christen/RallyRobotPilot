@@ -8,7 +8,34 @@ from tqdm import tqdm
 import os
 from model import ResNetLiteLSTM
 from collections import defaultdict
-from scripts.preprocess import scale_image
+
+def scale_image(img):
+    """
+    img : torch.Tensor ou np.ndarray, shape (C,H,W)
+    - Si img est float32 -> on suppose valeurs 0–255, on divise par 255.
+    - Si img est uint8   -> convertit en float32 puis /255
+    Retour : float32 dans [0,1]
+    """
+    
+    # Si numpy
+    if isinstance(img, np.ndarray):
+        if img.dtype == np.float32:
+            return img / 255.0
+        elif img.dtype == np.uint8:
+            return img.astype(np.float32) / 255.0
+        else:
+            raise ValueError(f"Unsupported dtype: {img.dtype}")
+
+    # Si tensor PyTorch
+    if isinstance(img, torch.Tensor):
+        if img.dtype == torch.float32:
+            return img / 255.0
+        elif img.dtype == torch.uint8:
+            return img.float() / 255.0
+        else:
+            raise ValueError(f"Unsupported tensor dtype: {img.dtype}")
+
+    raise TypeError("img must be NumPy array or torch.Tensor")
 
 def build_datasets(preproc_dir, train_ratio=0.8):
     # Regroupement par record
@@ -122,7 +149,7 @@ def train_epoch(model, dataloader, criterion, optimizer, scaler, device):
     for images, raycasts, speed, classification in pbar:
         images = images.to(device)
         raycasts = raycasts.to(device)
-        speed = speed.to(device)
+        speed = speed.to(device).unsqueeze(1)
         classification = classification.to(device)
         
         optimizer.zero_grad()
@@ -168,7 +195,7 @@ def validate(model, dataloader, criterion, device):
         for images, raycasts, speed, classification in tqdm(dataloader, desc="Validation"):
             images = images.to(device)
             raycasts = raycasts.to(device)
-            speed = speed.to(device)
+            speed = speed.to(device).unsqueeze(1)
             classification = classification.to(device)
             
             with autocast():
@@ -189,7 +216,7 @@ def validate(model, dataloader, criterion, device):
 
 def main():
     # Hyperparamètres
-    BATCH_SIZE = 128
+    BATCH_SIZE = 40
     NUM_EPOCHS = 50
     LEARNING_RATE = 1e-4
     # app = Ursina(size=(160, 224)), keep this image size

@@ -35,7 +35,7 @@ class Car(Entity):
         braking_strength=30,
         friction=1.5,
         camera_speed=8,
-        model_path="checkpoints/dummy.pth",
+        model_path="checkpoints/test_best_model.pth",
     ):
         super().__init__(
             model="assets/cars/sports-car.obj",

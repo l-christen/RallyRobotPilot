@@ -1,7 +1,34 @@
 import torch
 import numpy as np
 from model.model import ResNetLiteLSTM
-from preprocess import scale_image
+
+def scale_image(img):
+    """
+    img : torch.Tensor ou np.ndarray, shape (C,H,W)
+    - Si img est float32 -> on suppose valeurs 0–255, on divise par 255.
+    - Si img est uint8   -> convertit en float32 puis /255
+    Retour : float32 dans [0,1]
+    """
+    
+    # Si numpy
+    if isinstance(img, np.ndarray):
+        if img.dtype == np.float32:
+            return img / 255.0
+        elif img.dtype == np.uint8:
+            return img.astype(np.float32) / 255.0
+        else:
+            raise ValueError(f"Unsupported dtype: {img.dtype}")
+
+    # Si tensor PyTorch
+    if isinstance(img, torch.Tensor):
+        if img.dtype == torch.float32:
+            return img / 255.0
+        elif img.dtype == torch.uint8:
+            return img.float() / 255.0
+        else:
+            raise ValueError(f"Unsupported tensor dtype: {img.dtype}")
+
+    raise TypeError("img must be NumPy array or torch.Tensor")
 
 
 def load_model(checkpoint_path, device='cuda'):
