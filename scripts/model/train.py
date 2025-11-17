@@ -228,7 +228,7 @@ def main():
     print(f"Nombre de paramètres: {model.get_num_parameters():,}")
     
     # Loss et optimizer
-    criterion = MultiTaskLoss(command_weight=30.0).to(device)
+    criterion = MultiTaskLoss().to(device)
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=0.5, patience=5
