@@ -2,6 +2,8 @@ import torch
 import numpy as np
 from model.model import ResNetLiteLSTM
 
+# TODO : Add a cache for the embeding of frames already seen.
+
 def scale_image(img):
     """
     img : torch.Tensor ou np.ndarray, shape (C,H,W)

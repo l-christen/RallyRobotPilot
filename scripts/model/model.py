@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torchvision.models import resnet18
 
+# TODO : Add 2 separated forward methods: one for CNN feature extraction only, one for LSTM + heads.
 
 class ResNetLiteLSTM(nn.Module):
     """
