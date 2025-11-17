@@ -7,9 +7,8 @@ import numpy as np
 from tqdm import tqdm
 import os
 from model import ResNetLiteLSTM
-import pickle
-import lzma
 from collections import defaultdict
+from preprocess import scale_image
 
 def build_datasets(preproc_dir, train_ratio=0.8):
     # Regroupement par record
@@ -59,6 +58,7 @@ class VideoGameDataset(Dataset):
         images, raycasts, speed, directions = torch.load(self.files[idx])
         if self.transform:
             images = self.transform(images)
+        images = torch.stack([scale_image(frame) for frame in images], dim=0)
         return images, raycasts, speed, directions
 
 
