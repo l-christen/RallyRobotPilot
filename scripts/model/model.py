@@ -20,7 +20,7 @@ class ResNetLiteLSTM(nn.Module):
             base.conv1,     # (B,64,H/2,W/2)
             base.bn1,
             base.relu,
-            base.maxpool,
+            base.maxpool,   # (B,64,H/4,W/4)
             base.layer1,    # (B,64,H/4,W/4)
             base.layer2     # (B,128,H/8,W/8)
         )
@@ -86,3 +86,15 @@ class ResNetLiteLSTM(nn.Module):
 
     def get_num_parameters(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
+    
+if __name__ == "__main__":
+    model = ResNetLiteLSTM()
+
+    checkpoint = {
+        "model_state_dict": model.state_dict(),
+        "epoch": 0,
+        "val_loss": 0.0,
+    }
+
+    torch.save(checkpoint, "checkpoints/dummy.pth")
+    print("dummy.pth créé avec succès !")

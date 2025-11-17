@@ -4,7 +4,7 @@ from model.model import ResNetLiteLSTM
 from preprocess import scale_image
 
 
-def load_model(checkpoint_path, img_height=224, img_width=160, device='cuda'):
+def load_model(checkpoint_path, device='cuda'):
     """
     Charge un modèle CNN-LSTM depuis un checkpoint.
     
@@ -66,7 +66,8 @@ class SequenceInferenceEngine:
         Returns:
             bool: True si le buffer est prêt pour l'inférence
         """
-        # Prétraiter l'image
+        # Prétraiter l'image (transpose + scale)
+        image = np.transpose(image, (2, 0, 1))  # (C,H,W)
         img_tensor = torch.from_numpy(scale_image(image)).float()
         
         # Ajouter au buffer

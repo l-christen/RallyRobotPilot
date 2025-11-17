@@ -10,7 +10,6 @@ dependencies = [
     "tqdm>=4.67.1",
     "ursina==5.0.0",
     "ursinanetworking==2.1.4",
-
     # Torch GPU + Torchvision GPU
     "torch==2.2.2+cu121",
     "torchvision==0.17.2",

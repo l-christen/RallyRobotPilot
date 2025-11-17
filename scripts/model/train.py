@@ -64,55 +64,50 @@ class VideoGameDataset(Dataset):
 
 class MultiTaskLoss(nn.Module):
     """
-    Loss multi-tâches :
-    - Raycasts      : régression MSE
-    - Speed         : régression MSE
-    - Classification: multi-label BCE
-
-    → Uncertainty weighting (Kendall & Gal 2018)
-    → + Boost manuel de la classification (commandes)
+    Multi-task loss adaptée à la conduite :
+    - Tâche principale : classification des commandes (BCE)
+    - Tâches auxiliaires : raycasts + vitesse (MSE)
+    
+    Les auxiliaires stabilisent la représentation mais
+    ne doivent PAS dominer la décision.
     """
 
-    def __init__(self, command_weight=30.0):
+    def __init__(self, 
+                 weight_action=1.0,
+                 weight_raycast=0.05,
+                 weight_speed=0.05):
         super().__init__()
-
-        # Pondération automatique (apprise)
-        self.log_var_raycast = nn.Parameter(torch.zeros(1))
-        self.log_var_speed = nn.Parameter(torch.zeros(1))
-        self.log_var_classification = nn.Parameter(torch.zeros(1))
 
         # Losses de base
         self.mse = nn.MSELoss()
         self.bce = nn.BCEWithLogitsLoss()
 
-        # Pondération manuelle des commandes
-        self.command_weight = command_weight
-
+        # Pondérations fixes
+        self.w_action = weight_action
+        self.w_raycast = weight_raycast
+        self.w_speed = weight_speed
 
     def forward(self, pred_raycasts, pred_speed, pred_classification,
                 target_raycasts, target_speed, target_classification):
+        
+        # --- Perte commandes (tâche principale) ---
+        loss_action = self.bce(pred_classification, target_classification)
 
-        # --- Losses brutes ---
+        # --- Perte raycasts ---
         loss_raycast = self.mse(pred_raycasts, target_raycasts)
+
+        # --- Perte vitesse ---
         loss_speed = self.mse(pred_speed, target_speed)
 
-        # classification boostée
-        loss_classification = self.command_weight * self.bce(
-            pred_classification, target_classification
+        # --- Perte totale pondérée ---
+        total = (
+            self.w_action * loss_action +
+            self.w_raycast * loss_raycast +
+            self.w_speed * loss_speed
         )
 
-        # --- Uncertainty weighting ---
-        precision_raycast = torch.exp(-self.log_var_raycast)
-        precision_speed = torch.exp(-self.log_var_speed)
-        precision_classification = torch.exp(-self.log_var_classification)
+        return total, loss_raycast, loss_speed, loss_action
 
-        total_loss = (
-            precision_raycast * loss_raycast + self.log_var_raycast +
-            precision_speed * loss_speed + self.log_var_speed +
-            precision_classification * loss_classification + self.log_var_classification
-        )
-
-        return total_loss, loss_raycast, loss_speed, loss_classification
 
 
 def train_epoch(model, dataloader, criterion, optimizer, scaler, device):
