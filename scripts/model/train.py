@@ -8,7 +8,7 @@ from tqdm import tqdm
 import os
 from model import ResNetLiteLSTM
 from collections import defaultdict
-from preprocess import scale_image
+from scripts.preprocess import scale_image
 
 def build_datasets(preproc_dir, train_ratio=0.8):
     # Regroupement par record
