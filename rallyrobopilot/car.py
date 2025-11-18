@@ -135,6 +135,14 @@ class Car(Entity):
 
         self.multiray_sensor = None
 
+        # --- NEW RECORDING CODE ---
+        self.is_recording = True
+        self.recorded_genome = []
+        self.record_timer = 0.0
+        self.DELTA_T = 0.1 # Must match the GA!
+        print("!!! CAR IS IN RECORDING MODE !!!")
+        # --- END NEW CODE ---
+
     def set_track(self, track):
         self.track = track
         self.reset_position = track.car_default_reset_position
@@ -286,6 +294,25 @@ class Car(Entity):
         # --- 1. SET FIXED TIME & INCREMENT TIMER (FIX #1) ---
         # fixing the time.dt value for more consistent physics : 0.025s per frame (40fps)
         time.dt = 1/40
+        # --- NEW RECORDING LOGIC ---
+        self.record_timer += time.dt
+        if self.is_recording and self.record_timer >= self.DELTA_T:
+            self.record_timer = 0.0 # Reset timer
+
+            # Check keys and build the command string
+            cmd_str = ""
+            if held_keys[self.controls[0]] or held_keys["up arrow"]:
+                cmd_str += "push forward; "
+            if held_keys[self.controls[1]] or held_keys["left arrow"]:
+                cmd_str += "push left; "
+            if held_keys[self.controls[3]] or held_keys["right arrow"]:
+                cmd_str += "push right; "
+            if held_keys[self.controls[2]] or held_keys["down arrow"]:
+                cmd_str += "push back; " # Added back just in case
+
+            # Add the command (or an empty string if no keys pressed)
+            self.recorded_genome.append(cmd_str.strip())
+        # --- END NEW LOGIC ---
         if self.timer_running:
             self.count += time.dt
 
@@ -307,9 +334,9 @@ class Car(Entity):
             if next_cp_index < len(self.track.checkpoints):
                 next_cp_entity = self.track.checkpoints[next_cp_index]
                 
-                # Get car and checkpoint 2D positions
-                car_pos_2d = (self.x, self.z)
-                cp_pos_2d = (next_cp_entity.x, next_cp_entity.z)
+                # Get car and checkpoint 2D positions (GLOBAL/WORLD COORDINATES)
+                car_pos_2d = (self.world_x, self.world_z)           # Changed from self.x, self.z
+                cp_pos_2d = (next_cp_entity.world_x, next_cp_entity.world_z) # Changed from next_cp_entity.x, next_cp_entity.z
                 
                 # Calculate the 2D distance
                 distance = math.dist(car_pos_2d, cp_pos_2d)
@@ -324,8 +351,17 @@ class Car(Entity):
                     print(f"Hit checkpoint {self.lap_progress}!")
 
                     # Check if lap is complete
-                    if self.track.current_checkpoint >= len(self.track.checkpoints):
+                    if len(self.track.checkpoints) > 0 and self.track.current_checkpoint >= len(self.track.checkpoints):
                         print("--- LAP COMPLETE ---")
+                        # --- NEW SAVE LOGIC ---
+                        if self.is_recording:
+                            self.is_recording = False
+                            import json
+                            # Save in the main folder, next to main.py
+                            with open("human_seed.json", "w") as f:
+                                json.dump(self.recorded_genome, f, indent=2)
+                            print(f"!!! HUMAN SEED GENOME SAVED ({len(self.recorded_genome)} steps) !!!")
+                        # --- END NEW LOGIC ---
                         self.track.current_checkpoint = 0 # Reset for next lap
                         self.laps += 1 
                         self.reset_timer()

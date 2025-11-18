@@ -30,7 +30,7 @@ class Track(Entity):
         self.track_name = track_name
         self.checkpoints = []       # Will hold the invisible checkpoint Entities
         self.current_checkpoint = 0 # The index of the next checkpoint to hit
-        self.load_checkpoints()
+        
         self.data = load_track_metadata(track_name)
 
         # Find assets paths.
@@ -38,11 +38,16 @@ class Track(Entity):
         track_texture_path = str(self.data["track_texture"])
         
         origin_position = tuple(self.data["origin_position"])
-        origin_rotation = tuple(self.data["origin_rotation"])
+        _origin_rotation_data = tuple(self.data["origin_rotation"]) # Load into a temp variable
         self.origin_scale = tuple(self.data["origin_scale"])
 
         self.car_default_reset_position = tuple(self.data["car_default_reset_position"])
-        self.car_default_reset_orientation = tuple(self.data["car_default_reset_orientation"])
+        _car_default_reset_orientation_data = tuple(self.data["car_default_reset_orientation"]) # Load into a temp variable
+
+        # --- THIS IS THE FIX ---
+        # Apply -90 rotation to both the track's rotation AND the car's default rotation
+        origin_rotation = (_origin_rotation_data[0], _origin_rotation_data[1] - 90, _origin_rotation_data[2])
+        self.car_default_reset_orientation = (_car_default_reset_orientation_data[0], _car_default_reset_orientation_data[1] - 90, _car_default_reset_orientation_data[2])
 
         finish_line_position = tuple(self.data["finish_line_position"])
         finish_line_rotation = tuple(self.data["finish_line_rotation"])
@@ -53,6 +58,8 @@ class Track(Entity):
                          position = origin_position, rotation = origin_rotation, 
                          scale = self.origin_scale, collider = "mesh")
         print("Done creating track entity")
+
+        self.load_checkpoints()
 
         self.finish_line = Entity(model = "cube", position = finish_line_position,
                                   rotation = finish_line_rotation, scale = finish_line_scale, visible = False)
@@ -91,14 +98,25 @@ class Track(Entity):
                 data = json.load(f)
                 
                 for cp in data['checkpoints']:
-                    # Create an invisible, collidable "gate"
+                    # 1. Get the raw coordinates
+                    raw_x, raw_y, raw_z = cp['position']
+
+                    # 2. NEGATE X and Z to rotate 180 degrees
+                    # We map (x, y, z) -> (-x, y+5, -z)
+                    adjusted_pos = (-raw_x, raw_z + 5, -raw_y)
+                    # 3. Create the Entity at the new position
                     e = Entity(
-                        model = 'quad', # Simple plane
-                        scale = (15, 15), # 15m x 15m trigger area
-                        position = tuple(cp['position']),
+                        parent = self, # <-- Keep this fix from before!
+                        model = 'quad',
+                        scale = (20, 20),
+                        position = adjusted_pos, # <-- Use the swapped position
                         collider = 'box',
-                        visible = False # Set to True for debugging
+                        visible = True,
+                        color = color.red,
+                        texture = 'white_cube',
+                        double_sided = True
                     )
+                    e.animate_rotation_y(360, duration=5, loop=True)
                     self.checkpoints.append(e)
                     
             print(f"Successfully loaded {len(self.checkpoints)} checkpoints.")
