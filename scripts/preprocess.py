@@ -96,8 +96,14 @@ def should_accept(combo, kept):
 # ======================
 # MAIN PROCESSING
 # ======================
+# ======================
+# MAIN PROCESSING
+# ======================
 def process_record(path, kept):
-    """Découpage d'un record_x.npz en séquences équilibrées"""
+    """
+    Découpage d'un record_x.npz en séquences équilibrées.
+    Target = moyenne des contrôles entre t-3 et t+1 (5 frames).
+    """
 
     with lzma.open(path, "rb") as f:
         data = pickle.load(f)
@@ -105,19 +111,47 @@ def process_record(path, kept):
     sequences = []
 
     N = len(data)
+    # On a besoin de t-3 à t+1 → il faut i+SEQ_LEN+1 accessible
     for i in range(SKIP, N - SEQ_LEN - 2):
 
         # ---------------------
-        # LABEL (cible = t+1)
+        # LABEL (moyenne t-3 à t+1)
         # ---------------------
-        raw_ctrl = data[i + SEQ_LEN].current_controls
-        combo = tuple_from_controls(raw_ctrl)
-
-        # équilibrage
-        if not should_accept(combo, kept):
+        # Indices des frames pour la moyenne
+        # t = i + SEQ_LEN - 1 (dernière frame de la séquence)
+        # t-3 = i + SEQ_LEN - 4
+        # t+1 = i + SEQ_LEN
+        
+        label_indices = [
+            i + SEQ_LEN - 4,  # t-3
+            i + SEQ_LEN - 3,  # t-2
+            i + SEQ_LEN - 2,  # t-1
+            i + SEQ_LEN - 1,  # t (current)
+            i + SEQ_LEN       # t+1
+        ]
+        
+        # Vérifier que tous les indices sont valides
+        if label_indices[0] < 0 or label_indices[-1] >= N:
             continue
-
-        kept[combo] += 1
+        
+        # Collecter les contrôles et les convertir en vecteurs binaires
+        control_vectors = []
+        for idx in label_indices:
+            raw_ctrl = data[idx].current_controls
+            combo = tuple_from_controls(raw_ctrl)
+            control_vectors.append(np.array(combo, dtype=np.float32))
+        
+        # Moyenne des contrôles (soft labels)
+        mean_controls = np.mean(control_vectors, axis=0)  # shape: (4,)
+        
+        # Pour l'équilibrage, on utilise le contrôle dominant (arrondi)
+        combo_for_balance = tuple(np.round(mean_controls).astype(int))
+        
+        # Équilibrage
+        if not should_accept(combo_for_balance, kept):
+            continue
+        
+        kept[combo_for_balance] += 1
 
         # ---------------------
         # Séquence d'images
@@ -129,7 +163,7 @@ def process_record(path, kept):
         speeds = []
 
         for msg in seq:
-            # STOCKAGE RGB EN UINT8 ***
+            # STOCKAGE RGB EN UINT8
             img = msg.image.astype(np.uint8)
             img = np.transpose(img, (2,0,1))  # C,H,W
             images.append(torch.from_numpy(img))  # uint8
@@ -143,13 +177,12 @@ def process_record(path, kept):
 
         images = torch.stack(images)  # (T,3,H,W) uint8
 
-        # on prend le dernier raycast et speed
+        # On prend le dernier raycast et speed
         raycasts = torch.tensor(raycasts[-1] / 100.0, dtype=torch.float32)
         speed = torch.tensor(speeds[-1], dtype=torch.float32)
 
-        # label tensor
-        target_controls = torch.tensor(combo, dtype=torch.float32)
-
+        # Label tensor (soft labels, pas binaire)
+        target_controls = torch.tensor(mean_controls, dtype=torch.float32)
 
         # ---------------------
         # FLIP VERSION
@@ -163,19 +196,22 @@ def process_record(path, kept):
 
         flip_imgs = torch.stack(flip_imgs)
 
-        # raycasts inversés
+        # Raycasts inversés
         flip_raycasts = torch.tensor(
             raycasts.numpy()[::-1].copy(),
             dtype=torch.float32
         )
 
-        # labels inversés left <-> right
-        flip_combo = flip_controls(combo)
-        flip_controls_tensor = torch.tensor(flip_combo, dtype=torch.float32)
+        # Labels inversés : moyenne des contrôles flippés
+        flip_mean_controls = mean_controls.copy()
+        flip_mean_controls[2], flip_mean_controls[3] = flip_mean_controls[3], flip_mean_controls[2]  # swap left/right
+        flip_controls_tensor = torch.tensor(flip_mean_controls, dtype=torch.float32)
+        
+        # Pour l'équilibrage du flip
+        flip_combo_for_balance = tuple(np.round(flip_mean_controls).astype(int))
+        kept[flip_combo_for_balance] += 1
 
-        kept[flip_combo] += 1
-
-        # empilement final
+        # Empilement final
         sequences.append((images, raycasts, speed, target_controls))
         sequences.append((flip_imgs, flip_raycasts, speed, flip_controls_tensor))
 
