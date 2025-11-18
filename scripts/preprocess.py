@@ -99,9 +99,6 @@ def should_accept(global_distrib, combo, kept):
 # ======================
 # MAIN PROCESSING
 # ======================
-# ======================
-# MAIN PROCESSING
-# ======================
 def process_record(path, kept, global_distrib):
     """
     Découpage d'un record_x.npz en séquences équilibrées.
@@ -228,6 +225,8 @@ def main():
     print("[+] Calcul distribution initiale…")
     global_distrib = get_distrib()
 
+    # mettre à jour la variable globale max_per_class utilisée par should_accept
+    global max_per_class
     max_per_class = global_distrib[(0, 1, 1, 0)]
 
     # compteur des séquences retenues par classe
