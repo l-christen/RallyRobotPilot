@@ -11,3 +11,4 @@ scripts/model/__pycache__/
 venv/*
 venv/bin/activate
 scripts/GA_results/*
+*.out

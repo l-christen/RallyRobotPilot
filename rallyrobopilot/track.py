@@ -108,15 +108,15 @@ class Track(Entity):
                     e = Entity(
                         parent = self, # <-- Keep this fix from before!
                         model = 'quad',
-                        scale = (20, 20),
+                        scale = (40, 20),
                         position = adjusted_pos, # <-- Use the swapped position
                         collider = 'box',
-                        visible = True,
+                        visible = False,
                         color = color.red,
                         texture = 'white_cube',
                         double_sided = True
                     )
-                    e.animate_rotation_y(360, duration=5, loop=True)
+                    # e.animate_rotation_y(360, duration=5, loop=True) 
                     self.checkpoints.append(e)
                     
             print(f"Successfully loaded {len(self.checkpoints)} checkpoints.")

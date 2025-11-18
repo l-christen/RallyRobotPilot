@@ -131,17 +131,42 @@ POSSIBLE_ACTIONS = [
     ''
 ]
 
-GENOME_LENGTH = 400     # 40-second run
+GENOME_LENGTH = 500    # 45-second run
 POPULATION_SIZE = 32  # SMOKE TEST: One individual per worker
-NUM_GENERATIONS = 10  # SMOKE TEST: 10 generations
+NUM_GENERATIONS = 20  # SMOKE TEST: 20 generations
 NUM_ELITES = 4
-MUTATION_RATE = 0.05
+MUTATION_RATE = 0.02
 
 def create_random_genome() -> list[str]:
     return [random.choice(POSSIBLE_ACTIONS) for _ in range(GENOME_LENGTH)]
 
+def load_human_seed():
+    try:
+        # Assumes human_seed.json is in the same directory as run_ga.py or adjust path
+        with open("human_seed.json", "r") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"⚠️ Could not load human seed: {e}")
+        return None
+
 def create_initial_population() -> list[list[str]]:
-    return [create_random_genome() for _ in range(POPULATION_SIZE)]
+    seed = load_human_seed()
+    population = []
+    
+    if seed:
+        print(f"🧬 Seeding population with Human Genome ({len(seed)} steps).")
+        # 1. Keep the original human run exactly as is (Elitism for the seed)
+        population.append(seed)
+        
+        # 2. Fill the rest with mutated versions of the human seed
+        # This creates a "Local Search" around the human trajectory
+        for _ in range(POPULATION_SIZE - 1):
+            population.append(mutate(seed)) # Ensure your mutate function handles the seed correctly
+    else:
+        print("🎲 No seed found. Using random population.")
+        population = [create_random_genome() for _ in range(POPULATION_SIZE)]
+        
+    return population
 
 def select_parents(fitness_scores: list) -> (list, list):
     top_half = fitness_scores[:POPULATION_SIZE // 2]

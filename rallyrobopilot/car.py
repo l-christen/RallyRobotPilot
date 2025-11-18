@@ -135,13 +135,13 @@ class Car(Entity):
 
         self.multiray_sensor = None
 
-        # --- NEW RECORDING CODE ---
+        """ # --- NEW RECORDING CODE ---
         self.is_recording = True
         self.recorded_genome = []
         self.record_timer = 0.0
         self.DELTA_T = 0.1 # Must match the GA!
         print("!!! CAR IS IN RECORDING MODE !!!")
-        # --- END NEW CODE ---
+        # --- END NEW CODE --- """
 
     def set_track(self, track):
         self.track = track
@@ -294,7 +294,7 @@ class Car(Entity):
         # --- 1. SET FIXED TIME & INCREMENT TIMER (FIX #1) ---
         # fixing the time.dt value for more consistent physics : 0.025s per frame (40fps)
         time.dt = 1/40
-        # --- NEW RECORDING LOGIC ---
+        """ # --- NEW RECORDING LOGIC ---
         self.record_timer += time.dt
         if self.is_recording and self.record_timer >= self.DELTA_T:
             self.record_timer = 0.0 # Reset timer
@@ -312,7 +312,7 @@ class Car(Entity):
 
             # Add the command (or an empty string if no keys pressed)
             self.recorded_genome.append(cmd_str.strip())
-        # --- END NEW LOGIC ---
+        # --- END NEW LOGIC --- """
         if self.timer_running:
             self.count += time.dt
 
@@ -348,12 +348,12 @@ class Car(Entity):
                     # HIT! Advance to the next checkpoint
                     self.track.current_checkpoint += 1
                     self.lap_progress = self.track.current_checkpoint
-                    print(f"Hit checkpoint {self.lap_progress}!")
+                    # print(f"Hit checkpoint {self.lap_progress}!")
 
                     # Check if lap is complete
                     if len(self.track.checkpoints) > 0 and self.track.current_checkpoint >= len(self.track.checkpoints):
                         print("--- LAP COMPLETE ---")
-                        # --- NEW SAVE LOGIC ---
+                        """ # --- NEW SAVE LOGIC ---
                         if self.is_recording:
                             self.is_recording = False
                             import json
@@ -361,7 +361,7 @@ class Car(Entity):
                             with open("human_seed.json", "w") as f:
                                 json.dump(self.recorded_genome, f, indent=2)
                             print(f"!!! HUMAN SEED GENOME SAVED ({len(self.recorded_genome)} steps) !!!")
-                        # --- END NEW LOGIC ---
+                        # --- END NEW LOGIC --- """
                         self.track.current_checkpoint = 0 # Reset for next lap
                         self.laps += 1 
                         self.reset_timer()
