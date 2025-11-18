@@ -135,7 +135,7 @@ class SequenceInferenceEngine:
         pred_ray, pred_speed, pred_class = self.model.forward_heads(last)
         
         # ----------- Post-traitement -----------
-        probabilities = torch.sigmoid(pred_class).cpu().numpy().flatten()
+        probabilities = torch.softmax(pred_class, dim=1).cpu().numpy().flatten()
         print(probabilities)
         controls = (probabilities > threshold).tolist()
 

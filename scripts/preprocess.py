@@ -18,7 +18,7 @@ SEQ_LEN = 40
 SKIP = 2
 
 # max par classe (d'après ta distrib : 2266)
-MAX_PER_CLASS = 2266
+MAX_PER_CLASS = None
 
 # classes incohérentes qu'on ignore
 INCOHERENT = {
@@ -74,10 +74,13 @@ def flip_controls(ctrl):
     return (fw, bw, ri, le)
 
 
-def should_accept(combo, kept):
+def should_accept(global_distrib, combo, kept):
     """Équilibrage progressif basé sur un quota MAX_PER_CLASS"""
     if combo in INCOHERENT:
         return False
+    
+    if global_distrib[combo] <= MAX_PER_CLASS:
+        return True
 
     current = kept[combo]
 
@@ -99,7 +102,7 @@ def should_accept(combo, kept):
 # ======================
 # MAIN PROCESSING
 # ======================
-def process_record(path, kept):
+def process_record(path, kept, global_distrib):
     """
     Découpage d'un record_x.npz en séquences équilibrées.
     Target = moyenne des contrôles entre t-3 et t+1 (5 frames).
@@ -148,7 +151,7 @@ def process_record(path, kept):
         combo_for_balance = tuple(np.round(mean_controls).astype(int))
         
         # Équilibrage
-        if not should_accept(combo_for_balance, kept):
+        if not should_accept(global_distrib, combo_for_balance, kept):
             continue
         
         kept[combo_for_balance] += 1
@@ -225,6 +228,8 @@ def main():
     print("[+] Calcul distribution initiale…")
     global_distrib = get_distrib()
 
+    MAX_PER_CLASS = global_distrib[(0, 1, 1, 0)]
+
     # compteur des séquences retenues par classe
     kept = defaultdict(int)
 
@@ -237,7 +242,7 @@ def main():
         path = os.path.join(RAW_DIR, fname)
 
         try:
-            seqs = process_record(path, kept)
+            seqs = process_record(path, kept, global_distrib)
             for j, s in enumerate(seqs):
                 torch.save(s, os.path.join(OUT_DIR, f"{fname[:-4]}_{j:05d}.pt"))
             total += len(seqs)
