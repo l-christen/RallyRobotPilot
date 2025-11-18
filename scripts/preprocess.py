@@ -18,7 +18,7 @@ SEQ_LEN = 40
 SKIP = 2
 
 # max par classe (d'après ta distrib : 2266)
-MAX_PER_CLASS = None
+max_per_class = None
 
 # classes incohérentes qu'on ignore
 INCOHERENT = {
@@ -75,20 +75,20 @@ def flip_controls(ctrl):
 
 
 def should_accept(global_distrib, combo, kept):
-    """Équilibrage progressif basé sur un quota MAX_PER_CLASS"""
+    """Équilibrage progressif basé sur un quota max_per_class"""
     if combo in INCOHERENT:
         return False
     
-    if global_distrib[combo] <= MAX_PER_CLASS:
+    if global_distrib[combo] <= max_per_class:
         return True
 
     current = kept[combo]
 
-    if current >= MAX_PER_CLASS:
+    if current >= max_per_class:
         return False
 
     # ratio progression
-    ratio = current / MAX_PER_CLASS
+    ratio = current / max_per_class
 
     # probabilité décroissante
     p_accept = 1.0 - ratio  # linéaire, stable et simple
@@ -228,7 +228,7 @@ def main():
     print("[+] Calcul distribution initiale…")
     global_distrib = get_distrib()
 
-    MAX_PER_CLASS = global_distrib[(0, 1, 1, 0)]
+    max_per_class = global_distrib[(0, 1, 1, 0)]
 
     # compteur des séquences retenues par classe
     kept = defaultdict(int)
@@ -253,7 +253,7 @@ def main():
     print(f"[✓] Total séquences enregistrées : {total}")
     print("[✓] Sequences par classe (post-undersampling) :")
     for c, k in kept.items():
-        print(f" {c} : {k} (max={MAX_PER_CLASS})")
+        print(f" {c} : {k} (max={max_per_class})")
 
 
 if __name__ == "__main__":
