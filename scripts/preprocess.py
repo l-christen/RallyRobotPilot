@@ -123,11 +123,11 @@ def process_record(path, kept, global_distrib):
         # t+1 = i + SEQ_LEN
         
         label_indices = [
-            i + SEQ_LEN - 4,  # t-3
-            i + SEQ_LEN - 3,  # t-2
-            i + SEQ_LEN - 2,  # t-1
-            i + SEQ_LEN - 1,  # t (current)
-            i + SEQ_LEN       # t+1
+            i + SEQ_LEN - 4,  # t-3 -> coeff 0.1
+            i + SEQ_LEN - 3,  # t-2 -> coeff 0.1
+            i + SEQ_LEN - 2,  # t-1 -> coeff 0.2
+            i + SEQ_LEN - 1,  # t (current) -> coeff 0.2
+            i + SEQ_LEN       # t+1 -> coeff 0.4
         ]
         
         # Vérifier que tous les indices sont valides
@@ -142,7 +142,8 @@ def process_record(path, kept, global_distrib):
             control_vectors.append(np.array(combo, dtype=np.float32))
         
         # Moyenne des contrôles (soft labels)
-        mean_controls = np.mean(control_vectors, axis=0)  # shape: (4,)
+        weights = np.array([0.1, 0.1, 0.2, 0.2, 0.4], dtype=np.float32)
+        mean_controls = np.average(control_vectors, axis=0, weights=weights)  # shape: (4,)
         
         # Pour l'équilibrage, on utilise le contrôle dominant (arrondi)
         combo_for_balance = tuple(np.round(mean_controls).astype(int))
