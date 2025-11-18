@@ -119,7 +119,7 @@ class SequenceInferenceEngine:
 
 
     @torch.no_grad()
-    def predict(self, threshold=0.5):
+    def predict(self, threshold=1):
         """
         Prédiction basée sur les embeddings déjà en cache.
         """
@@ -135,7 +135,7 @@ class SequenceInferenceEngine:
         pred_ray, pred_speed, pred_class = self.model.forward_heads(last)
         
         # ----------- Post-traitement -----------
-        probabilities = torch.softmax(pred_class, dim=-1).cpu().numpy().flatten()
+        probabilities = torch.softmax(pred_class, dim=1).cpu().numpy().flatten()
         print(probabilities)
         controls = (probabilities > threshold).tolist()
 
@@ -152,7 +152,7 @@ class SequenceInferenceEngine:
             "ready": True,
         }
     
-    def predict_controls_only(self, threshold=0.5):
+    def predict_controls_only(self, threshold=0.95):
         """
         Version simplifiée qui ne retourne que les contrôles.
         

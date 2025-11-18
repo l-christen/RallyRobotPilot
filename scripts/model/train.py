@@ -251,7 +251,7 @@ def main():
     )
     
     # Modèle
-    model = ResNetLiteLSTM(lstm_hidden=256, lstm_layers=1).to(device)
+    model = ResNetLiteLSTM(lstm_hidden=64, lstm_layers=1).to(device)
     print(f"Nombre de paramètres: {model.get_num_parameters():,}")
     
     # Loss et optimizer

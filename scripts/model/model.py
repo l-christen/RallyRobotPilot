@@ -37,8 +37,10 @@ class ResNetLiteLSTM(nn.Module):
             hidden_size=lstm_hidden,
             num_layers=lstm_layers,
             batch_first=True,
-            dropout=0.2 if lstm_layers > 1 else 0,
+            dropout=0.0,
         )
+
+        self.lstm_dropout = nn.Dropout(0.3)
 
         # ----------- HEADS (identiques à ton modèle) -----------
         self.raycast_head = nn.Sequential(

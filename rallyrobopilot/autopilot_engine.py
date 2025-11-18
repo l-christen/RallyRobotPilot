@@ -27,7 +27,7 @@ class AutopilotEngine:
         if not is_ready:
             return None
 
-        result = self.engine.predict(threshold=0.5)
+        result = self.engine.predict(threshold=0.3)
         if result is None:
             return None
 
