@@ -12,7 +12,7 @@ from tqdm import tqdm
 RAW_DIR = "data"
 OUT_DIR = "preprocessed"
 
-SEQ_LEN =2     # nombre de frames passées au CNN
+SEQ_LEN =4     # nombre de frames passées au CNN
 SKIP = 2        # pour éviter les frames initiales foireuses
 
 os.makedirs(OUT_DIR, exist_ok=True)

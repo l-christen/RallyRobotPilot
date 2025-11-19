@@ -15,7 +15,7 @@ class StackedResNetDriving(nn.Module):
         * actions  : 4 logits (forward/back/left/right)
     """
 
-    def __init__(self, num_frames=2):
+    def __init__(self, num_frames=4):
         super().__init__()
 
         self.num_frames = num_frames
@@ -68,11 +68,10 @@ class StackedResNetDriving(nn.Module):
             nn.ReLU(),
             nn.Linear(64, 1),
         )
-
-        # Actions (4) : on concat features + raycasts + speed
-        action_input_dim = self.embed_dim + 15 + 1
+        
+        # Actions (4)
         self.class_head = nn.Sequential(
-            nn.Linear(action_input_dim, 128),
+            nn.Linear(self.embed_dim, 128),
             nn.ReLU(),
             nn.Linear(128, 4),
         )
@@ -126,9 +125,7 @@ class StackedResNetDriving(nn.Module):
         pred_raycasts = self.raycast_head(feats)   # (B, 15)
         pred_speed    = self.speed_head(feats)     # (B, 1)
 
-        # Actions : concat features + preds
-        augmented = torch.cat([feats, pred_raycasts, pred_speed], dim=-1)
-        pred_actions = self.class_head(augmented) # (B, 4)
+        pred_actions = self.class_head(feats) # (B, 4)
 
         return pred_raycasts, pred_speed, pred_actions
 
@@ -176,8 +173,8 @@ if __name__ == "__main__":
     # Output filename
     out_path = "checkpoints/dummy.pth"
 
-    # Create model (default num_frames=2)
-    model = StackedResNetDriving(num_frames=2)
+    # Create model (default num_frames=4)
+    model = StackedResNetDriving(num_frames=4)
 
     # fake optimizer just for format consistency
     optimizer_state = {}
