@@ -14,7 +14,7 @@ from get_distrib import get_distrib
 RAW_DIR = "data"
 OUT_DIR = "preprocessed"
 
-SEQ_LEN = 10
+SEQ_LEN = 6
 SKIP = 2
 
 # max par classe (d'après ta distrib : 2266)

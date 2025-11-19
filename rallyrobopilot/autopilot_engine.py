@@ -5,7 +5,7 @@ from .sensing_message import SensingSnapshot
 import time
 
 class AutopilotEngine:
-    def __init__(self, checkpoint_path, device="auto", seq_len=10):
+    def __init__(self, checkpoint_path, device="auto", seq_len=6):
         if device == "auto":
             import torch
             device = "cuda" if torch.cuda.is_available() else "cpu"

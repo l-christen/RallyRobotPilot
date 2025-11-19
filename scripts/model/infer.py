@@ -64,7 +64,7 @@ class SequenceInferenceEngine:
     Gère le buffering de séquences et l'inférence avec gestion du warm-up.
     """
     
-    def __init__(self, model, seq_len=10, device='cuda'):
+    def __init__(self, model, seq_len=6, device='cuda'):
         """
         Args:
             model: Modèle CNNLSTMModel déjà chargé
@@ -138,7 +138,7 @@ class SequenceInferenceEngine:
         probabilities = torch.sigmoid(pred_class).cpu().numpy().flatten()
         print(probabilities)
         # controls = (probabilities > threshold).tolist()
-        threshhold = [0.4, 0.5, 0.8, 0.8]
+        threshhold = [0.3, 0.50, 0.85, 0.85]
         controls = [probabilities[i] > threshhold[i] for i in range(4)]
 
         raycasts = pred_ray.cpu().numpy().flatten()
@@ -184,7 +184,7 @@ class SequenceInferenceEngine:
         }
 
 
-def create_inference_engine(checkpoint_path, seq_len=10, device='cuda'):
+def create_inference_engine(checkpoint_path, seq_len=6, device='cuda'):
     """
     Fonction helper pour créer un moteur d'inférence complet.
     

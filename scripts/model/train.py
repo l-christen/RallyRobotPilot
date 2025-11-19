@@ -216,7 +216,7 @@ def validate(model, dataloader, criterion, device):
 
 def main():
     # Hyperparamètres
-    BATCH_SIZE = 160
+    BATCH_SIZE = 240
     NUM_EPOCHS = 50
     LEARNING_RATE = 1e-4
     # app = Ursina(size=(160, 224)), keep this image size
