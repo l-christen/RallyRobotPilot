@@ -21,10 +21,23 @@ os.makedirs(OUT_DIR, exist_ok=True)
 # ======================
 # HELPERS
 # ======================
-def to_uint8_chw(img):
-    """Convertit image Panda3D RGB -> uint8 C,H,W"""
+def to_uint8_chw(img, crop_top=50):
+    """
+    Convertit image Panda3D RGB -> uint8 C,H,W
+    + applique un crop : enlève crop_top pixels en haut.
+    
+    img : numpy array (H, W, 3)
+    crop_top : nombre de pixels à retirer depuis le haut
+    """
+    # Conversion → uint8
     img = img.astype(np.uint8)
-    return np.transpose(img, (2, 0, 1))  # C,H,W
+
+    # Crop du haut
+    if crop_top > 0:
+        img = img[crop_top:, :, :]   # (H - crop_top, W, 3)
+
+    # HWC → CHW
+    return np.transpose(img, (2, 0, 1))
 
 
 def flip_img_uint8(img_3hw):

@@ -65,11 +65,22 @@ class SequenceInferenceEngine:
         img_hwc : numpy array (H,W,3), float32 (0-255) or uint8
         """
 
-        # Convert -> CHW float32
-        chw = np.transpose(img_hwc, (2, 0, 1))
-        chw = scale_image(chw)   # float32 [0,1]
+        CROP_TOP = 50  # enlever 50 px en haut
 
+        # 1) Crop HWC avant toute transposition
+        if CROP_TOP > 0:
+            img_hwc = img_hwc[CROP_TOP:, :, :]   # (H-CROP_TOP, W, 3)
+
+        # 2) Convert HWC -> CHW
+        chw = np.transpose(img_hwc, (2, 0, 1))  # (C,H,W)
+
+        # 3) Normalisation 0-1
+        chw = scale_image(chw).copy()           # float32
+
+        # 4) Convert to tensor
         tensor = torch.from_numpy(chw).float()  # (C,H,W)
+
+        # 5) Buffer logic
         self.buffer.append(tensor)
         self.total_frames += 1
 
@@ -78,6 +89,7 @@ class SequenceInferenceEngine:
 
         self.ready = (len(self.buffer) == self.seq_len)
         return self.ready
+
 
     # ------------------------------------------
     # Predict
@@ -98,7 +110,7 @@ class SequenceInferenceEngine:
         speed = pred_speed[0].item()
 
         # default thresholds
-        thr = [0.4, 0.5, 0.6, 0.6]
+        thr = [0.4, 0.5, 0.5, 0.5]
         controls = [bool(probs[i] > thr[i]) for i in range(4)]
 
         self.total_infer += 1
