@@ -70,6 +70,13 @@ def get_distrib():
     for combo, count in global_counter.most_common():
         pct = (count / total_frames) * 100
         print(f"{combo} : {pct:.2f}%")
+
+    # write global_counter in a txt file in preprocessed/
+    distrib_path = os.path.join("preprocessed", "global_distrib.txt")
+    with open(distrib_path, "w") as f:
+        for combo, count in global_counter.most_common():
+            f.write(f"{combo} : {count}\n")
+
     # return the distribution for each class
     return global_counter
 

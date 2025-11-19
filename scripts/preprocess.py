@@ -2,10 +2,8 @@ import os
 import lzma
 import pickle
 import torch
-from tqdm import tqdm
 import numpy as np
-from collections import defaultdict
-from get_distrib import get_distrib
+from tqdm import tqdm
 
 
 # ======================
@@ -14,20 +12,8 @@ from get_distrib import get_distrib
 RAW_DIR = "data"
 OUT_DIR = "preprocessed"
 
-SEQ_LEN = 6
-SKIP = 2
-
-# max par classe (d'après ta distrib : 2266)
-max_per_class = None
-
-# classes incohérentes qu'on ignore
-INCOHERENT = {
-    (1, 1, 0, 0),
-    (0, 0, 1, 1),
-    (1, 1, 1, 1),
-    (1, 0, 1, 1),
-    (0, 1, 1, 1),
-}
+SEQ_LEN = 4     # nombre de frames passées au CNN
+SKIP = 2        # pour éviter les frames initiales foireuses
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -35,225 +21,154 @@ os.makedirs(OUT_DIR, exist_ok=True)
 # ======================
 # HELPERS
 # ======================
-def scale_image(img):
-    """
-    img : torch.Tensor ou np.ndarray, shape (C,H,W)
-    - Si img est float32 -> on suppose valeurs 0–255, on divise par 255.
-    - Si img est uint8   -> convertit en float32 puis /255
-    Retour : float32 dans [0,1]
-    """
-    
-    # Si numpy
-    if isinstance(img, np.ndarray):
-        if img.dtype == np.float32:
-            return img / 255.0
-        elif img.dtype == np.uint8:
-            return img.astype(np.float32) / 255.0
-        else:
-            raise ValueError(f"Unsupported dtype: {img.dtype}")
-
-    # Si tensor PyTorch
-    if isinstance(img, torch.Tensor):
-        if img.dtype == torch.float32:
-            return img / 255.0
-        elif img.dtype == torch.uint8:
-            return img.float() / 255.0
-        else:
-            raise ValueError(f"Unsupported tensor dtype: {img.dtype}")
-
-    raise TypeError("img must be NumPy array or torch.Tensor")
-
-def tuple_from_controls(ctrl):
-    """Convertit une liste/tensor de contrôles en tuple python hashable"""
-    return (int(ctrl[0]), int(ctrl[1]), int(ctrl[2]), int(ctrl[3]))
+def to_uint8_chw(img):
+    """Convertit image Panda3D RGB -> uint8 C,H,W"""
+    img = img.astype(np.uint8)
+    return np.transpose(img, (2, 0, 1))  # C,H,W
 
 
-def flip_controls(ctrl):
-    """Inversion left/right pour les labels"""
-    fw, bw, le, ri = ctrl
-    return (fw, bw, ri, le)
+def flip_img_uint8(img_3hw):
+    """Flip horizontal d’un tensor uint8 (C,H,W)"""
+    return img_3hw[:, :, ::-1].copy()
 
 
-def should_accept(global_distrib, combo, kept):
-    """Équilibrage progressif basé sur un quota max_per_class"""
-    if combo in INCOHERENT:
-        return False
-    
-    if global_distrib[combo] <= max_per_class:
-        return True
+def clip_and_norm_raycast(values):
+    """Normalise raycasts distances dans [0,1]"""
+    arr = np.array(values, dtype=np.float32)
+    arr = np.clip(arr, 0, 100.0)
+    return arr / 100.0
 
-    current = kept[combo]
 
-    if current >= max_per_class:
-        return False
+def norm_speed(v):
+    """Normalise speed dans [0,1], cap à 50 km/h"""
+    v = min(v, 50.0)
+    return np.float32(v / 50.0)
 
-    # ratio progression
-    ratio = current / max_per_class
 
-    # probabilité décroissante
-    p_accept = 1.0 - ratio  # linéaire, stable et simple
+def tuple_ctrl(ctrl):
+    """(fw,bw,left,right) -> tuple d’int"""
+    return tuple(int(v) for v in ctrl)
 
-    return np.random.rand() < p_accept
+
+def weighted_mean_controls(data, idxs):
+    """Soft label (moyenne pondérée t-3 → t+1)"""
+    weights = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32)
+    ctrls = []
+
+    for i in idxs:
+        ctrls.append(np.array(tuple_ctrl(data[i].current_controls), dtype=np.float32))
+
+    ctrls = np.stack(ctrls)  # (4,4)
+    return np.average(ctrls, axis=0, weights=weights)  # (4,)
 
 
 # ======================
-# MAIN PROCESSING
+# PROCESS 1 RECORD
 # ======================
-def process_record(path, kept, global_distrib):
+def process_record(path, save_prefix):
     """
-    Découpage d'un record_x.npz en séquences équilibrées.
-    Target = moyenne des contrôles entre t-3 et t+1 (5 frames).
+    Renvoie une liste de séquences prêtes à être sauvées :
+    - images: (T,3,H,W) uint8
+    - raycasts: (15,)
+    - speed: scalar
+    - soft_controls: (4,)
     """
 
     with lzma.open(path, "rb") as f:
         data = pickle.load(f)
 
-    sequences = []
-
+    out_items = []
     N = len(data)
-    # On a besoin de t-3 à t+1 → il faut i+SEQ_LEN+1 accessible
-    for i in range(SKIP, N - SEQ_LEN - 2):
 
-        # ---------------------
-        # LABEL (moyenne t-3 à t+1)
-        # ---------------------
-        # Indices des frames pour la moyenne
-        # t = i + SEQ_LEN - 1 (dernière frame de la séquence)
-        # t-3 = i + SEQ_LEN - 4
-        # t+1 = i + SEQ_LEN
-        
-        label_indices = [
-            i + SEQ_LEN - 4,  # t-3 -> coeff 0.1
-            i + SEQ_LEN - 3,  # t-2 -> coeff 0.1
-            i + SEQ_LEN - 2,  # t-1 -> coeff 0.2
-            i + SEQ_LEN - 1,  # t (current) -> coeff 0.2
-            i + SEQ_LEN       # t+1 -> coeff 0.4
+    # pour chaque séquence glissante
+    for i in range(SKIP, N - SEQ_LEN):
+
+        # Indices pour le label t-3 → t+1
+        label_idxs = [
+            i + SEQ_LEN - 3,
+            i + SEQ_LEN - 2,
+            i + SEQ_LEN - 1,
+            i + SEQ_LEN
         ]
-        
-        # Vérifier que tous les indices sont valides
-        if label_indices[0] < 0 or label_indices[-1] >= N:
-            continue
-        
-        # Collecter les contrôles et les convertir en vecteurs binaires
-        control_vectors = []
-        for idx in label_indices:
-            raw_ctrl = data[idx].current_controls
-            combo = tuple_from_controls(raw_ctrl)
-            control_vectors.append(np.array(combo, dtype=np.float32))
-        
-        # Moyenne des contrôles (soft labels)
-        weights = np.array([0.1, 0.1, 0.2, 0.2, 0.4], dtype=np.float32)
-        mean_controls = np.average(control_vectors, axis=0, weights=weights)  # shape: (4,)
-        
-        # Pour l'équilibrage, on utilise le contrôle dominant (arrondi)
-        combo_for_balance = tuple(np.round(mean_controls).astype(int))
-        
-        # Équilibrage
-        if not should_accept(global_distrib, combo_for_balance, kept):
-            continue
-        
-        kept[combo_for_balance] += 1
 
-        # ---------------------
-        # Séquence d'images
-        # ---------------------
-        seq = data[i:i+SEQ_LEN]
+        # Séquence de frames
+        seq = data[i : i + SEQ_LEN]
 
-        images = []
-        raycasts = []
-        speeds = []
-
+        # =====================
+        # IMAGES (T,3,H,W)
+        # =====================
+        imgs_uint8 = []
         for msg in seq:
-            # STOCKAGE RGB EN UINT8
-            img = msg.image.astype(np.uint8)
-            img = np.transpose(img, (2,0,1))  # C,H,W
-            images.append(torch.from_numpy(img))  # uint8
+            img_chw = to_uint8_chw(msg.image)
+            imgs_uint8.append(torch.from_numpy(img_chw))
 
-            rc = np.array(msg.raycast_distances, dtype=np.float32)
-            rc = np.clip(rc, 0, 100.0)
-            raycasts.append(rc)
+        images = torch.stack(imgs_uint8)  # (T,3,H,W) uint8
 
-            speed = min(msg.car_speed, 50.0)
-            speeds.append(speed / 50.0)
+        # =====================
+        # RAYCAST & SPEED (sur la dernière frame)
+        # =====================
+        last_msg = seq[-1]
 
-        images = torch.stack(images)  # (T,3,H,W) uint8
+        ray = clip_and_norm_raycast(last_msg.raycast_distances)
+        speed = norm_speed(last_msg.car_speed)
 
-        # On prend le dernier raycast et speed
-        raycasts = torch.tensor(raycasts[-1] / 100.0, dtype=torch.float32)
-        speed = torch.tensor(speeds[-1], dtype=torch.float32)
+        # =====================
+        # SOFT LABEL (4,)
+        # =====================
+        soft_ctrl = weighted_mean_controls(data, label_idxs)
+        soft_ctrl_tensor = torch.tensor(soft_ctrl, dtype=torch.float32)
 
-        # Label tensor (soft labels, pas binaire)
-        target_controls = torch.tensor(mean_controls, dtype=torch.float32)
-
-        # ---------------------
-        # FLIP VERSION
-        # ---------------------
-        flip_imgs = []
-
+        # =====================
+        # VERSION FLIPPÉE
+        # =====================
+        flipped_imgs = []
         for msg in seq:
-            inv = msg.image[:, ::-1, :].copy().astype(np.uint8)
-            inv = np.transpose(inv, (2,0,1))
-            flip_imgs.append(torch.from_numpy(inv))
+            img = to_uint8_chw(msg.image)
+            flipped_imgs.append(torch.from_numpy(flip_img_uint8(img)))
+        flipped = torch.stack(flipped_imgs)
 
-        flip_imgs = torch.stack(flip_imgs)
+        # flip des classes : swap left/right
+        flip_soft = soft_ctrl.copy()
+        flip_soft[2], flip_soft[3] = flip_soft[3], flip_soft[2]
+        flip_soft_tensor = torch.tensor(flip_soft, dtype=torch.float32)
 
-        # Raycasts inversés
-        flip_raycasts = torch.tensor(
-            raycasts.numpy()[::-1].copy(),
-            dtype=torch.float32
-        )
+        # flip raycasts (si ordonnés gauche→droite)
+        flip_ray = ray[::-1].copy()
 
-        # Labels inversés : moyenne des contrôles flippés
-        flip_mean_controls = mean_controls.copy()
-        flip_mean_controls[2], flip_mean_controls[3] = flip_mean_controls[3], flip_mean_controls[2]  # swap left/right
-        flip_controls_tensor = torch.tensor(flip_mean_controls, dtype=torch.float32)
-        
-        # Pour l'équilibrage du flip
-        flip_combo_for_balance = tuple(np.round(flip_mean_controls).astype(int))
-        kept[flip_combo_for_balance] += 1
+        # =====================
+        # STOCKAGE (pas de RAM qui explose)
+        # =====================
+        out_items.append((images, torch.tensor(ray), torch.tensor(speed), soft_ctrl_tensor))
+        out_items.append((flipped, torch.tensor(flip_ray), torch.tensor(speed), flip_soft_tensor))
 
-        # Empilement final
-        sequences.append((images, raycasts, speed, target_controls))
-        sequences.append((flip_imgs, flip_raycasts, speed, flip_controls_tensor))
-
-    return sequences
+    return out_items
 
 
 # ======================
 # MAIN
 # ======================
 def main():
-    print("[+] Calcul distribution initiale…")
-    global_distrib = get_distrib()
-
-    # mettre à jour la variable globale max_per_class utilisée par should_accept
-    global max_per_class
-    max_per_class = global_distrib[(0, 1, 1, 0)]
-
-    # compteur des séquences retenues par classe
-    kept = defaultdict(int)
-
     files = [f for f in os.listdir(RAW_DIR) if f.endswith(".npz")]
-    total = 0
 
-    print("[+] Début preprocess…")
+    print(f"[+] Found {len(files)} raw demo files")
+
+    counter = 0
 
     for fname in tqdm(files):
         path = os.path.join(RAW_DIR, fname)
-
         try:
-            seqs = process_record(path, kept, global_distrib)
-            for j, s in enumerate(seqs):
-                torch.save(s, os.path.join(OUT_DIR, f"{fname[:-4]}_{j:05d}.pt"))
-            total += len(seqs)
+            sequences = process_record(path, fname[:-4])
         except Exception as e:
-            print(f"[X] Erreur {fname}: {e}")
+            print(f"[ERROR] {fname}: {e}")
+            continue
 
-    print("\n========== DONE ==========")
-    print(f"[✓] Total séquences enregistrées : {total}")
-    print("[✓] Sequences par classe (post-undersampling) :")
-    for c, k in kept.items():
-        print(f" {c} : {k} (max={max_per_class})")
+        # SAVE EACH ITEM AS SEPARATE .PT (low RAM)
+        for j, item in enumerate(sequences):
+            torch.save(item, os.path.join(OUT_DIR, f"{fname[:-4]}_{j:05d}.pt"))
+            counter += 1
+
+    print("\n===== DONE =====")
+    print(f"[✓] Saved sequences: {counter}")
 
 
 if __name__ == "__main__":

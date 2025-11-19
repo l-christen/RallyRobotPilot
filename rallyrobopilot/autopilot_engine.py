@@ -1,33 +1,35 @@
-# autopilot_engine.py
-
 from model.infer import create_inference_engine
 from .sensing_message import SensingSnapshot
-import time
+
 
 class AutopilotEngine:
-    def __init__(self, checkpoint_path, device="auto", seq_len=6):
+    def __init__(self, checkpoint_path, device="auto", seq_len=4):
+        import torch
+
         if device == "auto":
-            import torch
             device = "cuda" if torch.cuda.is_available() else "cpu"
 
         self.engine = create_inference_engine(
             checkpoint_path=checkpoint_path,
-            device=device,
             seq_len=seq_len,
+            device=device,
         )
 
         self.device = device
-        self.last_inference_time = 0
-        print(f"[✓] Autopilot engine ready on {device}")
+        print(f"[✓] Autopilot engine initialized on {device}")
 
     def process_snapshot(self, snapshot):
-        """Return (forward, back, left, right) or None if not ready."""
-        is_ready = self.engine.add_frame(snapshot.image)
+        """
+        snapshot.image : numpy (H,W,3) float32 coming from Panda3D
+        Returns : tuple(bool,bool,bool,bool) or None
+        """
 
-        if not is_ready:
+        ready = self.engine.add_frame(snapshot.image)
+
+        if not ready:
             return None
 
-        result = self.engine.predict(threshold=0.5)
+        result = self.engine.predict()
         if result is None:
             return None
 

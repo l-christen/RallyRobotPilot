@@ -1,317 +1,355 @@
+import os
+from collections import defaultdict
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader
 from torch.cuda.amp import GradScaler, autocast
-import numpy as np
 from tqdm import tqdm
-import os
-from model import ResNetLiteLSTM
-from collections import defaultdict
+import numpy as np
+import ast
 
-def scale_image(img):
-    """
-    img : torch.Tensor ou np.ndarray, shape (C,H,W)
-    - Si img est float32 -> on suppose valeurs 0–255, on divise par 255.
-    - Si img est uint8   -> convertit en float32 puis /255
-    Retour : float32 dans [0,1]
-    """
-    
-    # Si numpy
-    if isinstance(img, np.ndarray):
-        if img.dtype == np.float32:
-            return img / 255.0
-        elif img.dtype == np.uint8:
-            return img.astype(np.float32) / 255.0
-        else:
-            raise ValueError(f"Unsupported dtype: {img.dtype}")
+from model import StackedResNetDriving
 
-    # Si tensor PyTorch
-    if isinstance(img, torch.Tensor):
-        if img.dtype == torch.float32:
-            return img / 255.0
-        elif img.dtype == torch.uint8:
-            return img.float() / 255.0
-        else:
-            raise ValueError(f"Unsupported tensor dtype: {img.dtype}")
 
-    raise TypeError("img must be NumPy array or torch.Tensor")
+# ============================
+# Utils images
+# ============================
+def scale_image_tensor(img):
+    if img.dtype == torch.uint8:
+        return img.float() / 255.0
+    elif img.dtype == torch.float32:
+        return img / 255.0
+    else:
+        raise ValueError(f"Unsupported image dtype: {img.dtype}")
 
-def build_datasets(preproc_dir, train_ratio=0.8):
-    # Regroupement par record
-    record_groups = defaultdict(list)
 
-    for f in sorted(os.listdir(preproc_dir)):
-        if f.endswith(".pt"):
-            record_name = f.split("_")[0] + "_" + f.split("_")[1]
-            record_groups[record_name].append(os.path.join(preproc_dir, f))
-
-    # Liste des records
-    records = list(record_groups.keys())
-    records.sort()
-
-    # Split par record
-    n = len(records)
-    split = int(train_ratio * n)
-
-    train_records = records[:split]
-    val_records   = records[split:]
-
-    # Construire les file lists
-    train_files = []
-    val_files   = []
-
-    for r in train_records:
-        train_files.extend(record_groups[r])
-    for r in val_records:
-        val_files.extend(record_groups[r])
-
-    print("Records train :", train_records)
-    print("Records val   :", val_records)
-    print(f"Train files: {len(train_files)}")
-    print(f"Val files:   {len(val_files)}")
-
-    return VideoGameDataset(train_files), VideoGameDataset(val_files)
-
-class VideoGameDataset(Dataset):
-    def __init__(self, file_list, transform=None):
+# ============================
+# Dataset
+# ============================
+class DrivingDataset(Dataset):
+    def __init__(self, file_list):
         self.files = file_list
-        self.transform = transform
 
     def __len__(self):
         return len(self.files)
 
     def __getitem__(self, idx):
-        images, raycasts, speed, directions = torch.load(self.files[idx])
-        if self.transform:
-            images = self.transform(images)
-        images = torch.stack([scale_image(frame) for frame in images], dim=0)
-        return images, raycasts, speed, directions
+        images, ray, speed, actions = torch.load(self.files[idx])
+        images = scale_image_tensor(images)
+        return images, ray.float(), speed.float(), actions.float()
 
 
-class MultiTaskLoss(nn.Module):
+# ============================
+# Split train / val
+# ============================
+def build_datasets(preproc_dir, train_ratio=0.8):
+
+    record_groups = defaultdict(list)
+
+    for f in sorted(os.listdir(preproc_dir)):
+        if not f.endswith(".pt"):
+            continue
+        parts = f.split("_")
+        if len(parts) < 3:
+            key = "all"
+        else:
+            key = parts[0] + "_" + parts[1]
+        record_groups[key].append(os.path.join(preproc_dir, f))
+
+    records = sorted(record_groups.keys())
+    split = int(train_ratio * len(records))
+
+    train_files = []
+    val_files = []
+
+    for r in records[:split]:
+        train_files.extend(record_groups[r])
+    for r in records[split:]:
+        val_files.extend(record_groups[r])
+
+    print(f"[INFO] #records train: {len(records[:split])}")
+    print(f"[INFO] #records val:   {len(records[split:])}")
+    print(f"[INFO] #samples train: {len(train_files)}")
+    print(f"[INFO] #samples val:   {len(val_files)}")
+
+    return DrivingDataset(train_files), DrivingDataset(val_files)
+
+
+# ======================================================
+# NEW : COMBO-BASED WEIGHTS (not per-touch)
+# ======================================================
+def compute_combo_weights(
+    path="preprocessed/global_distrib.txt",
+    eps=1e-9
+):
     """
-    Multi-task loss adaptée à la conduite :
-    - Tâche principale : classification des commandes (BCE)
-    - Tâches auxiliaires : raycasts + vitesse (MSE)
+    Lit un fichier de distribution sous la forme :
+        (1, 0, 0, 0) : 18740
+        (0, 0, 0, 1) : 9728
+        ...
     
-    Les auxiliaires stabilisent la représentation mais
-    ne doivent PAS dominer la décision.
+    Retourne :
+        dict combo -> weight normalisé (moyenne = 1)
     """
 
-    def __init__(self, 
-                 weight_action=1.0,
-                 weight_raycast=0.05,
-                 weight_speed=0.05):
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Distribution file not found: {path}")
+
+    distrib = {}
+
+    # ---------------------------
+    # Lecture du fichier ligne par ligne
+    # ---------------------------
+    with open(path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Exemple de ligne :
+            # "(1, 0, 0, 0) : 18740"
+            try:
+                combo_str, count_str = line.split(":")
+                combo = ast.literal_eval(combo_str.strip())
+                count = int(count_str.strip())
+                distrib[combo] = count
+            except Exception as e:
+                print(f"[WARN] Could not parse line: {line}  ({e})")
+
+    if len(distrib) == 0:
+        raise RuntimeError(f"No valid data found in {path}")
+
+    total = sum(distrib.values())
+
+    # ---------------------------
+    # Fréquence par combo
+    # ---------------------------
+    freq = {combo: count / total for combo, count in distrib.items()}
+
+    # ---------------------------
+    # Poids = inverse de la fréquence
+    # ---------------------------
+    weights = {
+        combo: 1.0 / max(f, eps)
+        for combo, f in freq.items()
+    }
+
+    # ---------------------------
+    # Normalisation → moyenne = 1
+    # ---------------------------
+    mean_w = np.mean(list(weights.values()))
+    for combo in weights:
+        weights[combo] /= mean_w
+
+    # ---------------------------
+    # Log
+    # ---------------------------
+    print("[INFO] Combo weights loaded from file:")
+    for combo, w in weights.items():
+        print(f"  {combo} : {w:.4f}")
+
+    return weights
+
+
+# ============================
+# Multi-task loss with combo weights
+# ============================
+class MultiTaskLoss(nn.Module):
+    def __init__(self,
+                 combo_weights,
+                 w_action=1.0,
+                 w_raycast=0.05,
+                 w_speed=0.05):
         super().__init__()
 
-        # Losses de base
+        self.bce = nn.BCEWithLogitsLoss(reduction="none")  # we weight manually
         self.mse = nn.MSELoss()
-        self.bce = nn.BCEWithLogitsLoss()
 
-        # Pondérations fixes
-        self.w_action = weight_action
-        self.w_raycast = weight_raycast
-        self.w_speed = weight_speed
+        self.combo_weights = combo_weights
+        self.w_action = w_action
+        self.w_raycast = w_raycast
+        self.w_speed = w_speed
 
-    def forward(self, pred_raycasts, pred_speed, pred_classification,
-                target_raycasts, target_speed, target_classification):
-        
-        # --- Perte commandes (tâche principale) ---
-        loss_action = self.bce(pred_classification, target_classification)
+    def forward(self,
+                pred_ray, pred_speed, pred_actions,
+                target_ray, target_speed, target_actions):
 
-        # --- Perte raycasts ---
-        loss_raycast = self.mse(pred_raycasts, target_raycasts)
+        # ---------
+        # Action loss (BCE)
+        # ---------
+        bce_raw = self.bce(pred_actions, target_actions)  # (B,4)
+        bce_mean_per_sample = bce_raw.mean(dim=1)         # (B,)
 
-        # --- Perte vitesse ---
+        # Determine combo for each sample
+        rounded = torch.round(target_actions).cpu().numpy()
+        weights = []
+
+        for r in rounded:
+            tup = tuple(int(x) for x in r)
+            if tup in self.combo_weights:
+                weights.append(self.combo_weights[tup])
+            else:
+                # if unseen combo: neutral weight
+                weights.append(1.0)
+
+        weights = torch.tensor(weights, dtype=torch.float32, device=pred_actions.device)
+
+        loss_action = (bce_mean_per_sample * weights).mean()
+
+        # ---------
+        # Aux tasks
+        # ---------
+        loss_ray = self.mse(pred_ray, target_ray)
         loss_speed = self.mse(pred_speed, target_speed)
 
-        # --- Perte totale pondérée ---
-        total = (
+        loss = (
             self.w_action * loss_action +
-            self.w_raycast * loss_raycast +
+            self.w_raycast * loss_ray +
             self.w_speed * loss_speed
         )
 
-        return total, loss_raycast, loss_speed, loss_action
+        return loss, loss_ray, loss_speed, loss_action
 
 
-
-def train_epoch(model, dataloader, criterion, optimizer, scaler, device):
-    """Une époque d'entraînement"""
+# ============================
+# Train / Val
+# ============================
+def train_epoch(model, loader, criterion, optimizer, scaler, device):
     model.train()
-    total_loss = 0
-    total_raycast_loss = 0
-    total_speed_loss = 0
-    total_classification_loss = 0
-    
-    pbar = tqdm(dataloader, desc="Training")
-    for images, raycasts, speed, classification in pbar:
+    total_loss = total_r = total_s = total_a = 0.0
+    pbar = tqdm(loader, desc="Train")
+
+    for images, ray, speed, actions in pbar:
         images = images.to(device)
-        raycasts = raycasts.to(device)
+        ray = ray.to(device)
         speed = speed.to(device).unsqueeze(1)
-        classification = classification.to(device)
-        
+        actions = actions.to(device)
+
         optimizer.zero_grad()
-        
-        # Mixed precision training
+
         with autocast():
-            pred_raycasts, pred_speed, pred_classification = model(images)
-            loss, loss_r, loss_s, loss_c = criterion(
-                pred_raycasts, pred_speed, pred_classification,
-                raycasts, speed, classification
+            pred_ray, pred_speed, pred_actions = model(images)
+            loss, lr, ls, la = criterion(
+                pred_ray, pred_speed, pred_actions,
+                ray, speed, actions
             )
-        
-        # Backward avec gradient scaling
+
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
-        
+
         total_loss += loss.item()
-        total_raycast_loss += loss_r.item()
-        total_speed_loss += loss_s.item()
-        total_classification_loss += loss_c.item()
-        
-        pbar.set_postfix({
-            'loss': f'{loss.item():.4f}',
-            'raycast': f'{loss_r.item():.4f}',
-            'speed': f'{loss_s.item():.4f}',
-            'class': f'{loss_c.item():.4f}'
-        })
-    
-    n = len(dataloader)
-    return total_loss / n, total_raycast_loss / n, total_speed_loss / n, total_classification_loss / n
+        total_r += lr.item()
+        total_s += ls.item()
+        total_a += la.item()
+
+    n = len(loader)
+    return total_loss/n, total_r/n, total_s/n, total_a/n
 
 
-def validate(model, dataloader, criterion, device):
-    """Validation"""
+def validate(model, loader, criterion, device):
     model.eval()
-    total_loss = 0
-    total_raycast_loss = 0
-    total_speed_loss = 0
-    total_classification_loss = 0
-    
+    total_loss = total_r = total_s = total_a = 0.0
+
     with torch.no_grad():
-        for images, raycasts, speed, classification in tqdm(dataloader, desc="Validation"):
+        pbar = tqdm(loader, desc="Val")
+        for images, ray, speed, actions in pbar:
             images = images.to(device)
-            raycasts = raycasts.to(device)
+            ray = ray.to(device)
             speed = speed.to(device).unsqueeze(1)
-            classification = classification.to(device)
-            
+            actions = actions.to(device)
+
             with autocast():
-                pred_raycasts, pred_speed, pred_classification = model(images)
-                loss, loss_r, loss_s, loss_c = criterion(
-                    pred_raycasts, pred_speed, pred_classification,
-                    raycasts, speed, classification
+                pred_ray, pred_speed, pred_actions = model(images)
+                loss, lr, ls, la = criterion(
+                    pred_ray, pred_speed, pred_actions,
+                    ray, speed, actions
                 )
-            
+
             total_loss += loss.item()
-            total_raycast_loss += loss_r.item()
-            total_speed_loss += loss_s.item()
-            total_classification_loss += loss_c.item()
-    
-    n = len(dataloader)
-    return total_loss / n, total_raycast_loss / n, total_speed_loss / n, total_classification_loss / n
+            total_r += lr.item()
+            total_s += ls.item()
+            total_a += la.item()
+
+    n = len(loader)
+    return total_loss/n, total_r/n, total_s/n, total_a/n
 
 
+# ============================
+# MAIN
+# ============================
 def main():
-    # Hyperparamètres
-    BATCH_SIZE = 240
-    NUM_EPOCHS = 50
-    LEARNING_RATE = 1e-4
-    # app = Ursina(size=(160, 224)), keep this image size
-    IMG_HEIGHT = 224
-    IMG_WIDTH = 160
-    
-    # Chemins
-    DATA_PATH = "preprocessed"
-    CHECKPOINT_DIR = "./checkpoints"
+
+    DATA_DIR = "preprocessed"
+    CHECKPOINT_DIR = "checkpoints"
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
-    
-    # Device
+
+    BATCH_SIZE = 300
+    NUM_EPOCHS = 50
+    LR = 1e-4
+    TRAIN_RATIO = 0.8
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-    
-    # Datasets
-    train_dataset, val_dataset = build_datasets(DATA_PATH, train_ratio=0.8)
-    
-    train_loader = DataLoader(
-        train_dataset, 
-        batch_size=BATCH_SIZE, 
-        shuffle=True, 
-        num_workers=4,
-        pin_memory=True
-    )
-    val_loader = DataLoader(
-        val_dataset, 
-        batch_size=BATCH_SIZE, 
-        shuffle=False, 
-        num_workers=4,
-        pin_memory=True
-    )
-    
-    # Modèle
-    model = ResNetLiteLSTM(lstm_hidden=32, lstm_layers=1).to(device)
-    print(f"Nombre de paramètres: {model.get_num_parameters():,}")
-    
-    # Loss et optimizer
-    criterion = MultiTaskLoss().to(device)
-    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
+    print("[INFO] Device:", device)
+
+    # datasets
+    train_ds, val_ds = build_datasets(DATA_DIR, TRAIN_RATIO)
+
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE,
+                              shuffle=True, num_workers=4, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE,
+                            shuffle=False, num_workers=4, pin_memory=True)
+
+    # --- Combo weights ---
+    combo_weights = compute_combo_weights()
+
+    # model
+    model = StackedResNetDriving(num_frames=4).to(device)
+    print(f"[INFO] #params: {model.get_num_parameters():,}")
+
+    # loss
+    criterion = MultiTaskLoss(combo_weights).to(device)
+
+    optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', factor=0.5, patience=5
+        optimizer, mode="min", factor=0.5, patience=5, verbose=True
     )
-    
-    # Gradient scaler pour mixed precision
+
     scaler = GradScaler()
-    
-    # Entraînement
-    best_val_loss = float('inf')
-    
+
+    best_val = float("inf")
+
     for epoch in range(NUM_EPOCHS):
-        print(f"\n{'='*50}")
+        print("\n" + "="*60)
         print(f"Epoch {epoch+1}/{NUM_EPOCHS}")
-        print(f"{'='*50}")
-        
-        # Train
-        train_loss, train_r, train_s, train_c = train_epoch(
+
+        train_loss, train_r, train_s, train_a = train_epoch(
             model, train_loader, criterion, optimizer, scaler, device
         )
-        
-        # Validation
-        val_loss, val_r, val_s, val_c = validate(
+        val_loss, val_r, val_s, val_a = validate(
             model, val_loader, criterion, device
         )
-        
-        # Scheduler step
+
         scheduler.step(val_loss)
-        
-        # Logs
-        print(f"\nTrain Loss: {train_loss:.4f} (R:{train_r:.4f}, S:{train_s:.4f}, C:{train_c:.4f})")
-        print(f"Val Loss: {val_loss:.4f} (R:{val_r:.4f}, S:{val_s:.4f}, C:{val_c:.4f})")
-        
-        # Sauvegarder le meilleur modèle
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            checkpoint = {
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'val_loss': val_loss,
-            }
-            torch.save(checkpoint, os.path.join(CHECKPOINT_DIR, 'best_model.pth'))
-            print(f"✓ Meilleur modèle sauvegardé (val_loss: {val_loss:.4f})")
-        
-        # Sauvegarder checkpoint périodique
-        if (epoch + 1) % 10 == 0:
-            checkpoint = {
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'val_loss': val_loss,
-            }
-            torch.save(checkpoint, os.path.join(CHECKPOINT_DIR, f'checkpoint_epoch_{epoch+1}.pth'))
-    
-    print("\n✓ Entraînement terminé!")
+
+        print(f"[TRAIN] loss={train_loss:.4f}")
+        print(f"[VAL]   loss={val_loss:.4f}")
+
+        # save best
+        if val_loss < best_val:
+            best_val = val_loss
+            path = os.path.join(CHECKPOINT_DIR, "best_model.pth")
+            torch.save({
+                "epoch": epoch,
+                "val_loss": val_loss,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+            }, path)
+            print(f"[✓] Saved best model → {path}")
+
+    print("\n[✓] Training finished.")
 
 
 if __name__ == "__main__":

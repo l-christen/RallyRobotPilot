@@ -3,159 +3,192 @@ import torch.nn as nn
 from torchvision.models import resnet18
 
 
-class ResNetLiteLSTM(nn.Module):
+class StackedResNetDriving(nn.Module):
     """
-    Lightweight ResNet18 + LSTM model for driving.
-    Now the action head uses:
-        - LSTM hidden state
-        - Predicted speed
-        - Predicted raycasts
-    This gives the controller knowledge of:
-        - current visual context
-        - current vehicle speed
-        - spatial layout around the car (raycasts)
+    CNN-only driving model.
+    - Entrée : séquence de T frames, shape (B, T, C, H, W)
+    - On concatène les T frames sur le canal : (B, 3*T, H, W)
+    - Backbone : ResNet18 complet (relativement puissant)
+    - Heads :
+        * raycasts : 15 valeurs
+        * speed    : 1 scalaire
+        * actions  : 4 logits (forward/back/left/right)
     """
 
-    def __init__(self, lstm_hidden=32, lstm_layers=1):
+    def __init__(self, num_frames=4):
         super().__init__()
 
+        self.num_frames = num_frames
+
         # --------------------
-        # CNN feature extractor
+        # Backbone: ResNet18
         # --------------------
         base = resnet18(weights=None)
 
-        # Keep only early layers (fast, lower resolution)
-        self.cnn = nn.Sequential(
-            base.conv1,
-            base.bn1,
-            base.relu,
-            base.maxpool,
-            base.layer1,
-            base.layer2
+        # Adapter la première couche pour 3 * T channels
+        in_channels = 3 * num_frames
+        self.conv1 = nn.Conv2d(
+            in_channels,
+            64,
+            kernel_size=7,
+            stride=2,
+            padding=3,
+            bias=False
         )
+
+        # On reprend le reste du ResNet
+        self.bn1   = base.bn1
+        self.relu  = base.relu
+        self.maxpool = base.maxpool
+        self.layer1  = base.layer1
+        self.layer2  = base.layer2
+        self.layer3  = base.layer3
+        self.layer4  = base.layer4
 
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.feature_dim = 128
+        self.feature_dim = 512   # ResNet18 output dim
 
-        # Feature projection to 128-dim embedding
-        self.embed = nn.Linear(self.feature_dim, 128)
-        self.embed_dim = 128
-
-        # --------------------
-        # LSTM temporal encoder
-        # --------------------
-        self.lstm = nn.LSTM(
-            input_size=self.embed_dim,
-            hidden_size=lstm_hidden,
-            num_layers=lstm_layers,
-            batch_first=True,
-            dropout=0.0,
-        )
-
-        self.lstm_dropout = nn.Dropout(0.3)
-        self.lstm_hidden = lstm_hidden
+        # Optionnel : projeter les features dans un espace plus compact
+        self.embed_dim = 256
+        self.embed = nn.Linear(self.feature_dim, self.embed_dim)
 
         # --------------------
-        # Prediction heads
+        # Heads de prédiction
         # --------------------
-
-        # Raycast regression head (15 distances)
+        # Raycasts (15)
         self.raycast_head = nn.Sequential(
-            nn.Linear(lstm_hidden, 128),
+            nn.Linear(self.embed_dim, 128),
             nn.ReLU(),
-            nn.Linear(128, 15)
+            nn.Linear(128, 15),
         )
 
-        # Speed regression head (1 scalar)
+        # Speed (1)
         self.speed_head = nn.Sequential(
-            nn.Linear(lstm_hidden, 64),
+            nn.Linear(self.embed_dim, 64),
             nn.ReLU(),
-            nn.Linear(64, 1)
+            nn.Linear(64, 1),
         )
 
-        # --------------------
-        # NEW: Action head uses:
-        #   - LSTM hidden
-        #   - predicted speed
-        #   - predicted raycasts
-        # Dimension = lstm_hidden + 1 + 15
-        # --------------------
+        # Actions (4) : on concat features + raycasts + speed
+        action_input_dim = self.embed_dim + 15 + 1
         self.class_head = nn.Sequential(
-            nn.Linear(lstm_hidden + 1 + 15, 64),
+            nn.Linear(action_input_dim, 128),
             nn.ReLU(),
-            nn.Linear(64, 4)
+            nn.Linear(128, 4),
         )
 
-    # ------------------------------------------------------
-    # Forward pass
-    # ------------------------------------------------------
+    # --------------------
+    # Forward principal
+    # --------------------
     def forward(self, x):
         """
         x : (B, T, C, H, W)
-        Returns:
-            (pred_raycasts, pred_speed, pred_actions)
-        Same output format as before → train and infer unchanged.
+        Retourne :
+            pred_raycasts : (B, 15)
+            pred_speed    : (B, 1)
+            pred_actions  : (B, 4)
         """
         B, T, C, H, W = x.shape
-        feats = []
 
-        # ----- Extract per-frame CNN features -----
-        for t in range(T):
-            f = self.cnn(x[:, t])          # (B,128,H',W')
-            f = self.pool(f).view(B, -1)   # (B,128)
-            f = self.embed(f)              # (B,128)
-            feats.append(f)
+        # Si T > num_frames, on garde juste les dernières frames
+        if T > self.num_frames:
+            x = x[:, -self.num_frames:]
+            T = self.num_frames
 
-        seq = torch.stack(feats, dim=1)    # (B,T,128)
+        # Si T < num_frames, tu peux :
+        # - soit pad avec la première/dernière frame
+        # - soit assert. Ici je duplique la dernière frame.
+        if T < self.num_frames:
+            pad_frames = self.num_frames - T
+            last = x[:, -1:].repeat(1, pad_frames, 1, 1, 1)
+            x = torch.cat([x, last], dim=1)
+            T = self.num_frames
 
-        # ----- LSTM temporal encoding -----
-        out, _ = self.lstm(seq)
-        last = out[:, -1]                  # last timestep (B,lstm_hidden)
-        last = self.lstm_dropout(last)
+        # Concaténation sur le canal : (B, T*C, H, W)
+        x = x.view(B, T * C, H, W)
 
-        # ----- Predict auxiliary tasks -----
-        pred_raycasts = self.raycast_head(last)     # (B,15)
-        pred_speed    = self.speed_head(last)       # (B,1)
+        # Backbone ResNet18 complet
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
 
-        # ----- NEW: Concatenate auxiliary predictions -----
-        augmented = torch.cat([last, pred_speed, pred_raycasts], dim=-1)
-        pred_actions = self.class_head(augmented)   # (B,4)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        # Global pooling + embedding
+        x = self.pool(x).view(B, -1)   # (B, 512)
+        feats = self.embed(x)          # (B, embed_dim)
+
+        # Heads auxiliaires
+        pred_raycasts = self.raycast_head(feats)   # (B, 15)
+        pred_speed    = self.speed_head(feats)     # (B, 1)
+
+        # Actions : concat features + preds
+        augmented = torch.cat([feats, pred_raycasts, pred_speed], dim=-1)
+        pred_actions = self.class_head(augmented) # (B, 4)
 
         return pred_raycasts, pred_speed, pred_actions
 
-    # ------------------------------------------------------
-    # Utilities kept identical for infer.py compatibility
-    # ------------------------------------------------------
+    # --------------------
+    # Utilitaires
+    # --------------------
     def get_num_parameters(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
-    def forward_cnn(self, frame):
+    def forward_cnn(self, frame_stack):
         """
-        Used by inference engine: CNN only.
+        Optionnel : utilisé en inference si tu veux passer
+        directement un stack de frames déjà concaténé :
+            frame_stack : (B, 3*num_frames, H, W)
+        Retourne : embedding (B, embed_dim)
         """
-        f = self.cnn(frame)
-        f = self.pool(f).view(frame.size(0), -1)
-        return self.embed(f)
+        x = frame_stack
 
-    def forward_lstm(self, seq):
-        """
-        Used by inference engine: LSTM only.
-        seq: (B,T,128)
-        Returns last hidden state (B,lstm_hidden)
-        """
-        out, _ = self.lstm(seq)
-        return out[:, -1]
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
 
-    def forward_heads(self, last):
-        """
-        Used by inference engine: heads only.
-        IMPORTANT: must reproduce the same logic as forward()
-        but using already-provided last=LSTM_hidden.
-        """
-        pred_raycasts = self.raycast_head(last)
-        pred_speed    = self.speed_head(last)
+        x = self.pool(x).view(x.size(0), -1)
+        feats = self.embed(x)
+        return feats
 
-        augmented = torch.cat([last, pred_speed, pred_raycasts], dim=-1)
+    def forward_heads(self, feats):
+        """
+        Si tu as déjà l'embedding `feats` (B, embed_dim) :
+        retourne (pred_raycasts, pred_speed, pred_actions)
+        """
+        pred_raycasts = self.raycast_head(feats)
+        pred_speed    = self.speed_head(feats)
+        augmented = torch.cat([feats, pred_raycasts, pred_speed], dim=-1)
         pred_actions = self.class_head(augmented)
-
         return pred_raycasts, pred_speed, pred_actions
+
+if __name__ == "__main__":
+
+    # Output filename
+    out_path = "checkpoints/dummy.pth"
+
+    # Create model (default num_frames=4)
+    model = StackedResNetDriving(num_frames=4)
+
+    # fake optimizer just for format consistency
+    optimizer_state = {}
+
+    checkpoint = {
+        "epoch": 0,
+        "val_loss": 999.0,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer_state,
+    }
+
+    torch.save(checkpoint, out_path)
+    print(f"✓ Dummy checkpoint saved to {out_path}")
+    print(f"  #params = {model.get_num_parameters():,}")
