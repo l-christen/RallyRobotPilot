@@ -15,7 +15,7 @@ class StackedResNetDriving(nn.Module):
         * actions  : 4 logits (forward/back/left/right)
     """
 
-    def __init__(self, num_frames=4):
+    def __init__(self, num_frames=2):
         super().__init__()
 
         self.num_frames = num_frames
@@ -176,8 +176,8 @@ if __name__ == "__main__":
     # Output filename
     out_path = "checkpoints/dummy.pth"
 
-    # Create model (default num_frames=4)
-    model = StackedResNetDriving(num_frames=4)
+    # Create model (default num_frames=2)
+    model = StackedResNetDriving(num_frames=2)
 
     # fake optimizer just for format consistency
     optimizer_state = {}

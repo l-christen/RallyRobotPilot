@@ -306,7 +306,7 @@ def main():
     combo_weights = compute_combo_weights()
 
     # model
-    model = StackedResNetDriving(num_frames=4).to(device)
+    model = StackedResNetDriving(num_frames=2).to(device)
     print(f"[INFO] #params: {model.get_num_parameters():,}")
 
     # loss

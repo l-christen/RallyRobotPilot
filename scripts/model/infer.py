@@ -29,7 +29,7 @@ def scale_image(img_chw):
 # Load model
 # ============================
 def load_model(checkpoint_path, device="cuda"):
-    model = StackedResNetDriving(num_frames=4)
+    model = StackedResNetDriving(num_frames=2)
 
     ckpt = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(ckpt["model_state_dict"])
@@ -45,7 +45,7 @@ def load_model(checkpoint_path, device="cuda"):
 # Inference Engine
 # ============================
 class SequenceInferenceEngine:
-    def __init__(self, model, seq_len=4, device="cuda"):
+    def __init__(self, model, seq_len=2, device="cuda"):
         self.model = model
         self.seq_len = seq_len
         self.device = device
@@ -98,7 +98,7 @@ class SequenceInferenceEngine:
         speed = pred_speed[0].item()
 
         # default thresholds
-        thr = [0.5, 0.5, 0.5, 0.5]
+        thr = [0.4, 0.5, 0.6, 0.6]
         controls = [bool(probs[i] > thr[i]) for i in range(4)]
 
         self.total_infer += 1
@@ -135,6 +135,6 @@ class SequenceInferenceEngine:
         }
 
 
-def create_inference_engine(checkpoint_path, seq_len=4, device="cuda"):
+def create_inference_engine(checkpoint_path, seq_len=2, device="cuda"):
     model = load_model(checkpoint_path, device=device)
     return SequenceInferenceEngine(model, seq_len=seq_len, device=device)
