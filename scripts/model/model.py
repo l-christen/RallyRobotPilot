@@ -55,12 +55,10 @@ class StackedResNetDriving(nn.Module):
         # TCN temporel
         # --------------------
         self.tcn = nn.Sequential(
-            nn.Conv1d(self.embed_dim, self.embed_dim, kernel_size=3, padding=1, dilation=1),
+            nn.Conv1d(self.embed_dim, self.embed_dim, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv1d(self.embed_dim, self.embed_dim, kernel_size=3, padding=2, dilation=2),
-            nn.ReLU(),
-            nn.Conv1d(self.embed_dim, self.embed_dim, kernel_size=3, padding=4, dilation=4),
-            nn.ReLU(),
+            nn.Conv1d(self.embed_dim, self.embed_dim, kernel_size=3, padding=1),
+            nn.ReLU()
         )
 
         # --------------------
