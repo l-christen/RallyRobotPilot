@@ -137,7 +137,9 @@ class SequenceInferenceEngine:
         # ----------- Post-traitement -----------
         probabilities = torch.sigmoid(pred_class).cpu().numpy().flatten()
         print(probabilities)
-        controls = (probabilities > threshold).tolist()
+        # controls = (probabilities > threshold).tolist()
+        threshhold = [0.4, 0.5, 0.8, 0.8]
+        controls = [probabilities[i] > threshhold[i] for i in range(4)]
 
         raycasts = pred_ray.cpu().numpy().flatten()
         speed = pred_speed.cpu().item()

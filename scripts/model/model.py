@@ -16,7 +16,7 @@ class ResNetLiteLSTM(nn.Module):
         - spatial layout around the car (raycasts)
     """
 
-    def __init__(self, lstm_hidden=64, lstm_layers=1):
+    def __init__(self, lstm_hidden=32, lstm_layers=1):
         super().__init__()
 
         # --------------------

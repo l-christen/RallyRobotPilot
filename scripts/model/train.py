@@ -216,7 +216,7 @@ def validate(model, dataloader, criterion, device):
 
 def main():
     # Hyperparamètres
-    BATCH_SIZE = 80
+    BATCH_SIZE = 160
     NUM_EPOCHS = 50
     LEARNING_RATE = 1e-4
     # app = Ursina(size=(160, 224)), keep this image size
@@ -251,7 +251,7 @@ def main():
     )
     
     # Modèle
-    model = ResNetLiteLSTM(lstm_hidden=64, lstm_layers=1).to(device)
+    model = ResNetLiteLSTM(lstm_hidden=32, lstm_layers=1).to(device)
     print(f"Nombre de paramètres: {model.get_num_parameters():,}")
     
     # Loss et optimizer
