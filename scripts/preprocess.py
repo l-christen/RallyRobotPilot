@@ -14,7 +14,7 @@ from get_distrib import get_distrib
 RAW_DIR = "data"
 OUT_DIR = "preprocessed"
 
-SEQ_LEN = 20
+SEQ_LEN = 10
 SKIP = 2
 
 # max par classe (d'après ta distrib : 2266)
@@ -123,11 +123,11 @@ def process_record(path, kept, global_distrib):
         # t+1 = i + SEQ_LEN
         
         label_indices = [
-            i + SEQ_LEN - 5,  # t-3 -> coeff 0.1
-            i + SEQ_LEN - 4,  # t-2 -> coeff 0.1
-            i + SEQ_LEN - 3,  # t-1 -> coeff 0.2
-            i + SEQ_LEN - 2,  # t (current) -> coeff 0.2
-            i + SEQ_LEN - 1      # t+1 -> coeff 0.4
+            i + SEQ_LEN - 4,  # t-3 -> coeff 0.1
+            i + SEQ_LEN - 3,  # t-2 -> coeff 0.1
+            i + SEQ_LEN - 2,  # t-1 -> coeff 0.2
+            i + SEQ_LEN - 1,  # t (current) -> coeff 0.2
+            i + SEQ_LEN       # t+1 -> coeff 0.4
         ]
         
         # Vérifier que tous les indices sont valides

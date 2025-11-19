@@ -64,7 +64,7 @@ class SequenceInferenceEngine:
     Gère le buffering de séquences et l'inférence avec gestion du warm-up.
     """
     
-    def __init__(self, model, seq_len=20, device='cuda'):
+    def __init__(self, model, seq_len=10, device='cuda'):
         """
         Args:
             model: Modèle CNNLSTMModel déjà chargé
@@ -182,7 +182,7 @@ class SequenceInferenceEngine:
         }
 
 
-def create_inference_engine(checkpoint_path, seq_len=20, device='cuda'):
+def create_inference_engine(checkpoint_path, seq_len=10, device='cuda'):
     """
     Fonction helper pour créer un moteur d'inférence complet.
     
