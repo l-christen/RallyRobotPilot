@@ -12,7 +12,7 @@ from tqdm import tqdm
 RAW_DIR = "data"
 OUT_DIR = "preprocessed"
 
-SEQ_LEN =4     # nombre de frames passées au CNN
+SEQ_LEN = 4     # nombre de frames passées au CNN
 SKIP = 2        # pour éviter les frames initiales foireuses
 
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -28,7 +28,7 @@ def to_uint8_chw(img):
 
 
 def flip_img_uint8(img_3hw):
-    """Flip horizontal d’un tensor uint8 (C,H,W)"""
+    """Flip horizontal d'un tensor uint8 (C,H,W)"""
     return img_3hw[:, :, ::-1].copy()
 
 
@@ -46,20 +46,8 @@ def norm_speed(v):
 
 
 def tuple_ctrl(ctrl):
-    """(fw,bw,left,right) -> tuple d’int"""
+    """(fw,bw,left,right) -> tuple d'int"""
     return tuple(int(v) for v in ctrl)
-
-
-def weighted_mean_controls(data, idxs):
-    """Soft label (moyenne pondérée t-3 → t+1)"""
-    weights = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32)
-    ctrls = []
-
-    for i in idxs:
-        ctrls.append(np.array(tuple_ctrl(data[i].current_controls), dtype=np.float32))
-
-    ctrls = np.stack(ctrls)  # (4,4)
-    return np.average(ctrls, axis=0, weights=weights)  # (4,)
 
 
 # ======================
@@ -71,7 +59,7 @@ def process_record(path, save_prefix):
     - images: (T,3,H,W) uint8
     - raycasts: (15,)
     - speed: scalar
-    - soft_controls: (4,)
+    - controls: (4,) hard label
     """
 
     with lzma.open(path, "rb") as f:
@@ -83,16 +71,13 @@ def process_record(path, save_prefix):
     # pour chaque séquence glissante
     for i in range(SKIP, N - SEQ_LEN):
 
-        # Indices pour le label t-3 → t+1
-        label_idxs = [
-            i + SEQ_LEN - 3,
-            i + SEQ_LEN - 2,
-            i + SEQ_LEN - 1,
-            i + SEQ_LEN
-        ]
-
-        # Séquence de frames
+        # Séquence de frames t-3, t-2, t-1, t
         seq = data[i : i + SEQ_LEN]
+
+        # Label = input donné à t-1 (effectué à t)
+        label_idx = i + SEQ_LEN - 1
+        ctrl = np.array(tuple_ctrl(data[label_idx].current_controls), dtype=np.float32)
+        ctrl_tensor = torch.tensor(ctrl, dtype=torch.float32)
 
         # =====================
         # IMAGES (T,3,H,W)
@@ -113,12 +98,6 @@ def process_record(path, save_prefix):
         speed = norm_speed(last_msg.car_speed)
 
         # =====================
-        # SOFT LABEL (4,)
-        # =====================
-        soft_ctrl = weighted_mean_controls(data, label_idxs)
-        soft_ctrl_tensor = torch.tensor(soft_ctrl, dtype=torch.float32)
-
-        # =====================
         # VERSION FLIPPÉE
         # =====================
         flipped_imgs = []
@@ -128,9 +107,9 @@ def process_record(path, save_prefix):
         flipped = torch.stack(flipped_imgs)
 
         # flip des classes : swap left/right
-        flip_soft = soft_ctrl.copy()
-        flip_soft[2], flip_soft[3] = flip_soft[3], flip_soft[2]
-        flip_soft_tensor = torch.tensor(flip_soft, dtype=torch.float32)
+        flip_ctrl = ctrl.copy()
+        flip_ctrl[2], flip_ctrl[3] = flip_ctrl[3], flip_ctrl[2]
+        flip_ctrl_tensor = torch.tensor(flip_ctrl, dtype=torch.float32)
 
         # flip raycasts (si ordonnés gauche→droite)
         flip_ray = ray[::-1].copy()
@@ -138,8 +117,8 @@ def process_record(path, save_prefix):
         # =====================
         # STOCKAGE (pas de RAM qui explose)
         # =====================
-        out_items.append((images, torch.tensor(ray), torch.tensor(speed), soft_ctrl_tensor))
-        out_items.append((flipped, torch.tensor(flip_ray), torch.tensor(speed), flip_soft_tensor))
+        out_items.append((images, torch.tensor(ray), torch.tensor(speed), ctrl_tensor))
+        out_items.append((flipped, torch.tensor(flip_ray), torch.tensor(speed), flip_ctrl_tensor))
 
     return out_items
 
