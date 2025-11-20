@@ -39,7 +39,6 @@ def load_checkpoints():
 CHECKPOINTS = load_checkpoints()
 print(f"Successfully loaded {len(CHECKPOINTS)} checkpoints.")
 
-# --- MODIFIED: calculate_fitness now returns a dict ---
 def calculate_fitness(genome: list[str], base_url: str) -> dict:
     """
     Runs a single genome and returns a dictionary of its results.
@@ -47,6 +46,8 @@ def calculate_fitness(genome: list[str], base_url: str) -> dict:
     
     # --- 1. Reset the simulation ---
     try:
+        # Reset commands the car to go to start position
+        # IMPORTANT: Ensure car.py has the rotation fix applied!
         requests.post(f"{base_url}/command", json={'command': 'reset;'})
     except Exception as e:
         return {'score': -99999, 'progress': 0, 'laps': 0, 'final_time': 0, 'dist_bonus': 0}
@@ -67,10 +68,11 @@ def calculate_fitness(genome: list[str], base_url: str) -> dict:
         progress = data.get('lap_progress', 0)
         laps_completed = data.get('laps', 0)
         
+        # These are URSINA WORLD COORDINATES
         final_x = data.get('car_position x', 0.0)
         final_z = data.get('car_position z', 0.0)
         
-        # --- !! NEW FITNESS CALCULATION !! ---
+        # --- FITNESS CALCULATION ---
         
         # 1. Base score for laps and checkpoints
         fitness = (laps_completed * 5000) + (progress * 100)
@@ -85,28 +87,33 @@ def calculate_fitness(genome: list[str], base_url: str) -> dict:
             fitness -= time_penalty
             final_time = time_penalty
 
-        # 3. NEW: Distance Bonus
-        # 'progress' is the index of the *next* checkpoint to hit
+        # 3. FIXED Distance Bonus
         distance_bonus = 0.0
+        
+        # Only calculate if we haven't finished the track yet
         if progress < len(CHECKPOINTS):
             next_cp = CHECKPOINTS[progress]
+            raw_pos = next_cp['position'] # [x, y, z] from JSON
             
-            # Get 2D positions
-            car_pos_2d = (final_x, final_z)
-            # Checkpoint positions are [x, y, z]
-            cp_pos_2d = (next_cp['position'][0], next_cp['position'][2]) 
+            # --- COORDINATE TRANSFORMATION FIX ---
+            # In track.py, the entity is spawned at: (-raw_x, raw_z + 5, -raw_y)
+            # This means:
+            #   Game X = -JSON_X
+            #   Game Y = JSON_Z + 5 (Height)
+            #   Game Z = -JSON_Y
             
-            # Calculate 2D distance
-            distance = math.dist(car_pos_2d, cp_pos_2d)
+            target_x = -raw_pos[0]
+            target_z = -raw_pos[1] 
             
-            # Bonus is inversely proportional to distance.
-            # We scale it by 1000 to make it significant.
-            # We add 1e-6 to avoid division by zero.
-            distance_bonus = (1.0 / (distance + 1e-6)) * 1000 
+            # Calculate 2D Euclidean distance in Game Space
+            distance = math.dist((final_x, final_z), (target_x, target_z))
+            
+            # Bonus: Closer is better. 
+            # Added 1.0 buffer to prevent division by zero or massive spikes.
+            distance_bonus = (1.0 / (distance + 1.0)) * 1000 
             
             fitness += distance_bonus
 
-        # Return the full result object
         return {
             'score': fitness,
             'progress': progress,
@@ -118,8 +125,6 @@ def calculate_fitness(genome: list[str], base_url: str) -> dict:
     except Exception as e:
         print(f"Error getting final sensing from {base_url}: {e}")
         return {'score': -99999, 'progress': 0, 'laps': 0, 'final_time': 0, 'dist_bonus': 0}
-
-# --- (Rest of the script is identical to your last version) ---
 
 # --- GA initialization ---
 POSSIBLE_ACTIONS = [
@@ -142,8 +147,10 @@ def create_random_genome() -> list[str]:
 
 def load_human_seed():
     try:
-        # Assumes human_seed.json is in the same directory as run_ga.py or adjust path
-        with open("human_seed.json", "r") as f:
+        # UPDATED: Full path to the seed file
+        seed_path = "/home/jeremy.duc/nas_home/RallyRobotPilot/GA/seed/human_seed.json"
+        
+        with open(seed_path, "r") as f:
             return json.load(f)
     except Exception as e:
         print(f"⚠️ Could not load human seed: {e}")
@@ -195,7 +202,6 @@ def mutate(genome: list) -> list:
             mutated_genome.append(gene)
     return mutated_genome
 
-# --- MODIFIED: Main GA Execution (to log the bonus) ---
 def run_ga():
     print("Creating initial population...")
     population = create_initial_population()
@@ -276,7 +282,7 @@ def run_ga():
     print("\nBest genome (first 10 actions):")
     print(best_genome[:10])
     
-    output_dir = "GA_results"
+    output_dir = "/home/jeremy.duc/nas_home/RallyRobotPilot/GA/results"
     os.makedirs(output_dir, exist_ok=True)
     now = datetime.datetime.now()
     timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")

@@ -12,3 +12,9 @@ venv/*
 venv/bin/activate
 scripts/GA_results/*
 *.out
+rally_headless.tar
+logs/
+__pycache__/
+GA/telemetry/
+GA/results/
+*.png

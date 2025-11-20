@@ -12,3 +12,4 @@ matplotlib==3.10.7
 scikit-learn    
 torch
 requests
+mpi4py
