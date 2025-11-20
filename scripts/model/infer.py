@@ -110,7 +110,7 @@ class SequenceInferenceEngine:
         speed = pred_speed[0].item()
 
         # default thresholds
-        thr = [0.4, 0.7, 0.4, 0.4]
+        thr = [0.3, 0.7, 0.6, 0.6]
         controls = [bool(probs[i] > thr[i]) for i in range(4)]
 
         self.total_infer += 1

@@ -312,7 +312,7 @@ def main():
     # loss
     criterion = MultiTaskLoss(combo_weights).to(device)
 
-    optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-3)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=5, verbose=True
     )
@@ -341,6 +341,15 @@ def main():
         if val_loss < best_val:
             best_val = val_loss
             path = os.path.join(CHECKPOINT_DIR, "best_model.pth")
+            torch.save({
+                "epoch": epoch,
+                "val_loss": val_loss,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+            }, path)
+            print(f"[✓] Saved best model → {path}")
+        if True:
+            path = os.path.join(CHECKPOINT_DIR, "last_model.pth")
             torch.save({
                 "epoch": epoch,
                 "val_loss": val_loss,
