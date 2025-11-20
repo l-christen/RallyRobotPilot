@@ -4,6 +4,14 @@ import pickle
 from collections import Counter
 
 DATA_DIR = "data"   # Dossier contenant les record_x.npz
+invalid_combos = [
+    (1, 1, 0, 0),  # avant + arrière
+    (0, 0, 1, 1),  # gauche + droite
+    (1, 1, 1, 0),  # avant + arrière + gauche
+    (1, 1, 0, 1),  # avant + arrière + droite
+    (1, 0, 1, 1),  # avant + gauche + droite
+    (0, 1, 1, 1),  # arrière + gauche + droite
+]
 
 # -------------------------------------------
 # Chargement de tous les fichiers .npz
@@ -39,6 +47,8 @@ def get_distrib():
             for msg in data:
                 fw, bw, le, ri = msg.current_controls
                 combo = (int(fw), int(bw), int(le), int(ri))
+                if combo in invalid_combos:
+                    continue
                 global_counter[combo] += 1
                 combo = (int(fw), int(bw), int(ri), int(le))  # inverser gauche/droite
                 global_counter[combo] += 1
