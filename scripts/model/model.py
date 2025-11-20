@@ -3,11 +3,55 @@ import torch.nn as nn
 from torchvision.models import resnet18
 
 
+# ------------------------------------------------------------
+# Utility module for transpose inside nn.Sequential
+# ------------------------------------------------------------
+class Transpose(nn.Module):
+    def __init__(self, dim1, dim2):
+        super().__init__()
+        self.dim1 = dim1
+        self.dim2 = dim2
+
+    def forward(self, x):
+        return x.transpose(self.dim1, self.dim2)
+
+
+# ------------------------------------------------------------
+# Residual block for TCN
+# ------------------------------------------------------------
+class TCNBlock(nn.Module):
+    def __init__(self, channels, dropout):
+        super().__init__()
+
+        self.block = nn.Sequential(
+            nn.Conv1d(channels, channels, kernel_size=3, padding=1),
+            Transpose(1, 2),
+            nn.LayerNorm(channels),
+            Transpose(1, 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+
+            nn.Conv1d(channels, channels, kernel_size=3, padding=1),
+            Transpose(1, 2),
+            nn.LayerNorm(channels),
+            Transpose(1, 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+        )
+
+    def forward(self, x):
+        return x + self.block(x)  # Residual connection
+
+
+# ------------------------------------------------------------
+# Main model
+# ------------------------------------------------------------
 class StackedResNetDriving(nn.Module):
     """
     CNN + TCN driving model avec forte régularisation :
         - Dropout2d dans CNN
         - LayerNorm + Dropout dans TCN
+        - Residual TCN Blocks
         - Dropout avant heads
         - Dropout dans heads
         - GELU activations
@@ -34,7 +78,7 @@ class StackedResNetDriving(nn.Module):
         self.layer3 = base.layer3
         self.layer4 = base.layer4
 
-        # Dropout spatial (régularisation très forte)
+        # Dropout spatial modéré
         self.drop_cnn1 = nn.Dropout2d(p=dropout)
         self.drop_cnn2 = nn.Dropout2d(p=dropout)
 
@@ -45,25 +89,18 @@ class StackedResNetDriving(nn.Module):
         self.embed = nn.Linear(self.feature_dim, self.embed_dim)
 
         # --------------------
-        # TCN régularisé
+        # Temporal Convolutional Network (TCN)
         # --------------------
         self.tcn = nn.Sequential(
-            nn.Conv1d(self.embed_dim, self.embed_dim, kernel_size=3, padding=1),
-            nn.LayerNorm(self.embed_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-
-            nn.Conv1d(self.embed_dim, self.embed_dim, kernel_size=3, padding=1),
-            nn.LayerNorm(self.embed_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
+            TCNBlock(self.embed_dim, dropout),
+            TCNBlock(self.embed_dim, dropout),
         )
 
         # Dropout global avant heads
         self.pre_head_dropout = nn.Dropout(dropout)
 
         # --------------------
-        # Heads avec régularisation
+        # Heads
         # --------------------
         self.raycast_head = nn.Sequential(
             nn.Linear(self.embed_dim, 128),
@@ -87,31 +124,36 @@ class StackedResNetDriving(nn.Module):
         )
 
 
-    # ============================================================
-    # FORWARD
-    # ============================================================
+    # ------------------------------------------------------------
+    # Forward
+    # ------------------------------------------------------------
     def forward(self, x):
+        """
+        x : (B, T, C, H, W)
+        """
         B, T, C, H, W = x.shape
 
+        # Ajuster T
         if T > self.num_frames:
             x = x[:, -self.num_frames:]
-            T = self.num_frames
-        if T < self.num_frames:
+        elif T < self.num_frames:
             pad = self.num_frames - T
             x = torch.cat([x, x[:, -1:].repeat(1, pad, 1, 1, 1)], dim=1)
 
-        feats = []
-        for t in range(self.num_frames):
-            feats.append(self.forward_cnn(x[:, t]))
+        # CNN per frame
+        feats = [self.forward_cnn(x[:, t]) for t in range(self.num_frames)]
 
-        seq = torch.stack(feats, dim=1)       # (B,T,embed_dim)
-        seq = seq.transpose(1, 2)            # (B,embed_dim,T)
+        # (B,T,embed_dim) → (B,embed_dim,T)
+        seq = torch.stack(feats, dim=1).transpose(1, 2)
 
-        tc_out = self.tcn(seq)               # (B,embed_dim,T)
+        # TCN
+        tc_out = self.tcn(seq)
 
-        fused = tc_out[:, :, -1]             # (B,embed_dim)
+        # Dernier pas temporel
+        fused = tc_out[:, :, -1]   # (B,embed_dim)
         fused = self.pre_head_dropout(fused)
 
+        # Heads
         pred_raycasts = self.raycast_head(fused)
         pred_speed    = self.speed_head(fused)
         pred_actions  = self.class_head(fused)
@@ -119,9 +161,9 @@ class StackedResNetDriving(nn.Module):
         return pred_raycasts, pred_speed, pred_actions
 
 
-    # ============================================================
+    # ------------------------------------------------------------
     # CNN forward
-    # ============================================================
+    # ------------------------------------------------------------
     def forward_cnn(self, frame):
         x = self.conv1(frame)
         x = self.bn1(x)
@@ -137,9 +179,7 @@ class StackedResNetDriving(nn.Module):
         x = self.layer4(x)
 
         x = self.pool(x).view(frame.size(0), -1)
-        feats = self.embed(x)
-
-        return feats
+        return self.embed(x)
 
 
     def get_num_parameters(self):
