@@ -49,12 +49,12 @@ class StackedResNetDriving(nn.Module):
         # --------------------
         self.tcn = nn.Sequential(
             nn.Conv1d(self.embed_dim, self.embed_dim, kernel_size=3, padding=1),
-            nn.LayerNorm([self.embed_dim, 1]),
+            nn.LayerNorm(self.embed_dim),
             nn.GELU(),
             nn.Dropout(dropout),
 
             nn.Conv1d(self.embed_dim, self.embed_dim, kernel_size=3, padding=1),
-            nn.LayerNorm([self.embed_dim, 1]),
+            nn.LayerNorm(self.embed_dim),
             nn.GELU(),
             nn.Dropout(dropout),
         )
