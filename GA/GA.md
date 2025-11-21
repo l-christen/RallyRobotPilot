@@ -89,3 +89,35 @@ The primary objective of the GA is to find an "optimal trajectory" for the car. 
     *   **Advanced GA Techniques**: Consider implementing more advanced techniques like a "Hall of Fame," which preserves the absolute best individuals found across *all* generations, preventing them from being lost. More sophisticated crossover and mutation operators could also be explored.
     *   **Seeding Strategy**: Experiment with different seeding strategies. Instead of using a single human seed, one could use a mix of several different human paths (some safe, some risky) or reduce the influence of the seed by injecting more purely random individuals into the initial population.
     *   **Reviewing the Action Space**: The current set of discrete `POSSIBLE_ACTIONS` may be too limited to permit the fine-grained control needed for high-speed cornering. Future work could explore a more continuous control scheme, although this would significantly increase the complexity of the genome.
+
+### 3.4. The Fitness Function: Evolution and Interpretation
+
+The fitness function is the heart of any Genetic Algorithm, as it quantitatively defines "optimality." In this project, the fitness function has undergone several iterations to effectively guide the evolution towards fast and efficient trajectories.
+
+#### Evolution of the Fitness Formula
+
+1.  **Early Iterations (Basic Navigation)**: Initially, the fitness focused primarily on simply reaching the target checkpoint and minimizing the distance to it. There were basic rewards for forward velocity. This quickly led to the GA finding paths that were successful in navigation but extremely slow, often crawling to the finish line.
+
+2.  **Addressing Stagnation & Encouraging Speed**: To combat the issue of local optima (slow, safe paths), several components were added to actively push for faster and more aggressive driving:
+    *   **"Critical Fail"**: A large negative penalty (`-5000.0`) is applied if the car fails to make progress or resets, discouraging detrimental behaviors.
+    *   **"Wall Penalty"**: A penalty (`-2000.0`) is applied if the car's speed drops below a threshold (`1.0`), indicating it's stuck or against a wall.
+    *   **"Efficiency Bonus"**: Rewards (`+10.0` per unused step) for completing a segment in fewer frames than the maximum allowed, directly incentivizing faster completion.
+    *   **"Gradient Penalty"**: A soft penalty is introduced if the `exit velocity` is below a desired threshold (`15.0`). This component (`deficit * (2000.0 / 15.0)`) explicitly nudges the GA towards the target speed, even if the car successfully clears the checkpoint.
+
+3.  **Recent Tuning (Aggressive Speed Incentive)**:
+    *   The most recent major adjustment was a significant increase in the multiplier for the `velocity` reward under the "SUCCESS" condition, from `50.0` to `150.0`. This makes high speeds dramatically more impactful on the overall fitness score, forcing the GA to prioritize speed above all else once the basic navigation is achieved.
+
+#### How to Interpret the Current Fitness Score
+
+A genome's fitness score in `run_ga_segmented.py` is calculated based on the following components:
+
+-   **Base Success Reward**: `+10000` points if the car successfully reaches the target checkpoint. This is the primary hurdle.
+-   **Proximity Reward (if not yet successful)**: If the car hasn't reached the checkpoint yet, it gets `3000.0 / (distance_to_target + 1.0)` points. This guides the car towards the checkpoint.
+-   **Velocity Reward (if not yet successful)**: `velocity * 5.0` points for maintaining some speed while in progress.
+-   **Velocity Reward (if successful)**: `velocity * 150.0` points for the final exit velocity. This is the most critical factor for achieving optimal trajectories.
+-   **Efficiency Bonus**: `(maximum_steps_in_segment - steps_taken) * 10.0` points. Rewards faster completion times.
+-   **Low Velocity Penalty (Gradient Penalty)**: `-(15.0 - max(0.0, velocity)) * (2000.0 / 15.0)` points if the exit velocity is below `15.0`. This is a strong deterrent against slow, cautious completions.
+-   **Stuck/Wall Penalty**: ` -2000.0` if the car is effectively stuck (`abs(velocity) < 1.0`).
+-   **Critical Failure**: `-5000.0` if the car goes backward or resets.
+
+By understanding how these components sum up, one can interpret why a particular genome received its score and what aspects of its behavior the GA is currently prioritizing. For instance, a high score with low velocity despite success indicates the "gradient penalty" is not yet strong enough or the GA needs more exploration to find faster solutions.
