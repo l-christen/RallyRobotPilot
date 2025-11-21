@@ -180,3 +180,26 @@ P_stuck(v) =
 ```
 
 *In both cases, a "Critical Fail" (moving backwards) results in an immediate fitness of `-5000`.*
+
+### 3.5. Interpreting the Fitness Score Metrics
+
+Understanding the raw fitness score is crucial for evaluating the GA's progress and the quality of evolved genomes. The score is a composite metric, and its value can tell a detailed story about the car's performance within a segment.
+
+-   **Very Low Negative Scores (e.g., `-99999.0` or `-5000.0`)**: These typically indicate a critical failure.
+    *   `-99999.0`: Usually an uncaught error during simulation or a complete failure to respond from the Docker container.
+    *   `-5000.0`: The "Critical Fail" penalty, meaning the car went backward, exited the track boundaries in a way that triggered a reset, or otherwise demonstrated fundamentally undesirable behavior. These genomes are immediately discarded.
+
+-   **Negative Scores (e.g., around `-2000.0`)**: These suggest the car encountered a significant issue while attempting to reach the checkpoint.
+    *   `-2000.0` (with no other positive rewards): Indicates the "Wall Penalty" was triggered, meaning the car got stuck, hit a wall at low speed, or stopped moving.
+
+-   **Low Positive Scores (e.g., `0` to `3000`)**: These scores are usually associated with genomes that are still "IN PROGRESS" (have not reached the target checkpoint) or have reached it but performed very poorly.
+    *   Scores primarily driven by `3000.0 / (dist + 1.0)`: The car is getting closer to the checkpoint but hasn't reached it. Higher scores within this range mean it got closer.
+    *   Scores around `0` to `500`: The car got close but stopped, or had very low velocity, not enough to trigger significant rewards.
+
+-   **Medium to High Positive Scores (e.g., `5000` to `9999`)**: These often represent genomes that successfully reached the checkpoint but failed to meet the velocity target or were very inefficient.
+    *   Scores near `10000`: The car hit the checkpoint, gaining the base success reward, but had very low exit velocity and/or low efficiency, resulting in significant penalties (e.g., the `Gradient Penalty` for `v < 15`). The GA is finding a path, but not an optimal one for speed.
+
+-   **High Positive Scores (e.g., `10000+`)**: These are the desirable scores, indicating successful completion with good performance.
+    *   Scores significantly above `10000`: The car successfully hit the checkpoint and achieved a high exit velocity (`v >= 15.0`). The components like `(v * 150)` and the "Efficiency Bonus" (`(S - s) * 10`) contribute heavily here. The higher the score, the faster the car completed the segment and the higher its exit velocity. This is what the GA strives for.
+
+By tracking the best fitness score per generation, and especially the best exit velocity, one can gauge if the GA is successfully evolving towards truly optimal (fast) trajectories or if it's still stuck in sub-optimal solutions.
