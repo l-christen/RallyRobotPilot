@@ -61,6 +61,41 @@ Here are the key parameters and how to modify them:
 | `NUM_GENERATIONS`   | The number of generations the GA will run for each track segment before concluding.                         | `NUM_GENERATIONS = 30` (Allows the GA more "time" to evolve a better solution per segment). |
 | `NUM_ELITES`        | The number of the very best individuals from one generation that are guaranteed to survive into the next. | `NUM_ELITES = 2` (Reduces elitism, which can sometimes increase diversity).               |
 | `MUTATION_RATE`     | The initial probability (e.g., `0.15` = 15%) that a part of a genome will be randomly changed (mutated).   | `MUTATION_RATE = 0.25` (Significantly increases randomness and exploration).                |
-| `SEGMENT_STEPS`     | The number of actions in a genome, defining the "horizon" of the simulation for each segment.           | `SEGMENT_STEPS = 150` (Gives the car more actions/time to reach the next checkpoint).       |
+    | `SEGMENT_STEPS`     | The number of actions in a genome, defining the "horizon" of the simulation for each segment.           | `SEGMENT_STEPS = 150` (Gives the car more actions/time to reach the next checkpoint).       |
 
 To change a parameter, simply open the `run_ga_segmented.py` file, find the variable in the `# --- CONFIGURATION ---` section, and change its value.
+
+### 2.1. Changing MPI/SLURM Execution Parameters (in 'launch_segmented.sh')
+
+The `launch_segmented.sh` script is a SLURM (Simple Linux Utility for Resource Management) job script used to submit and manage the parallel execution of the GA on a computing cluster. It defines the resources requested and how the MPI processes are launched.
+
+You can modify the following key parameters within `launch_segmented.sh` to control the MPI execution:
+
+| Parameter Name        | SLURM Directive          | Purpose                                                                                                 | Example: How to Change                                              |
+| --------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **Job Name**          | `#SBATCH --job-name`     | A descriptive name for your job, useful for identifying it in the SLURM queue.                          | `#SBATCH --job-name=my_new_ga_run`                                 |
+| **Number of Nodes**   | `#SBATCH --nodes`        | The total number of computing nodes you are requesting for your job.                                    | `#SBATCH --nodes=10` (Requests 10 nodes for the job).               |
+| **Tasks per Node**    | `#SBATCH --ntasks-per-node` | The number of MPI processes (or "tasks") that will be launched on each allocated node.                  | `#SBATCH --ntasks-per-node=5` (Runs 5 MPI processes on each node).  |
+| **Total MPI Tasks**   | (Implicit)               | The total number of MPI processes that will run is `nodes * ntasks-per-node`. In this script, each MPI task corresponds to a GA worker. | If `nodes=6` and `ntasks-per-node=10`, then `6 * 10 = 60` total MPI tasks. |
+| **Time Limit**        | `#SBATCH --time`         | The maximum time duration your job is allowed to run (e.g., `HH:MM:SS`).                                | `#SBATCH --time=10:00:00` (Sets a 10-hour time limit).              |
+| **Exclude Nodes**     | `#SBATCH --exclude`      | Comma-separated list of specific nodes to exclude from the job allocation.                              | `#SBATCH --exclude=calypso5,calypso6`                               |
+| **Partition**         | `#SBATCH --partition`    | The SLURM partition (queue) to submit the job to. This might vary depending on your cluster's setup.    | `#SBATCH --partition=MyDedicatedPartition`                         |
+
+**Example Modification:**
+
+To run the GA with 120 workers distributed across 12 nodes (10 tasks per node) for a maximum of 4 hours, you would modify `launch_segmented.sh` as follows:
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=rally_seg_120workers # Changed job name
+#SBATCH --output=seg_job_%j.out
+#SBATCH --error=seg_job_%j.err
+#SBATCH --nodes=12                   # Changed from 6 to 12 nodes
+#SBATCH --ntasks-per-node=10         # Kept at 10 tasks per node
+#SBATCH --exclude=calypso1,calypso9
+#SBATCH --time=04:00:00              # Changed from 08:00:00 to 04:00:00
+#SBATCH --partition=Calypso
+# ... rest of the script ...
+```
+
+By adjusting these parameters, you can scale the GA's execution to leverage more or fewer resources on your computing cluster, directly impacting the speed and thoroughness of the evolutionary process.
