@@ -121,3 +121,62 @@ A genome's fitness score in `run_ga_segmented.py` is calculated based on the fol
 -   **Critical Failure**: `-5000.0` if the car goes backward or resets.
 
 By understanding how these components sum up, one can interpret why a particular genome received its score and what aspects of its behavior the GA is currently prioritizing. For instance, a high score with low velocity despite success indicates the "gradient penalty" is not yet strong enough or the GA needs more exploration to find faster solutions.
+
+#### Mathematical Formulation
+
+Let $v$ be the car's final velocity.
+Let $d$ be the final distance to the target checkpoint.
+Let $S$ be the total number of steps in the genome.
+Let $s$ be the number of steps taken to complete the segment.
+
+---
+
+**Version 1 (Commit `0f291f6`)**
+
+This initial version focused on reaching the target with a simple velocity reward.
+
+*If the car reaches the target checkpoint:*
+```
+Fitness = 10000 + (v * 50) + ((S - s) * 5) - P(v)
+```
+Where the penalty $P(v)$ is:
+```
+P(v) =
+  2000, if v < 15
+  0,    if v >= 15
+```
+
+*If the car does **not** reach the target checkpoint:*
+```
+Fitness = (3000 / (d + 1)) + (v * 2)
+```
+
+---
+
+**Version 2 (Commit `c8f46de` onwards)**
+
+This version was tuned to be more aggressive in rewarding speed and punishing slowness, introducing more granular penalties and stronger incentives.
+
+*If the car reaches the target checkpoint:*
+```
+Fitness = 10000 + (v * 150) + ((S - s) * 10) - P(v)
+```
+Where the "Gradient Penalty" $P(v)$ is now a function of the velocity deficit:
+```
+P(v) =
+  (15 - v) * (2000 / 15), if v < 15
+  0,                       if v >= 15
+```
+
+*If the car does **not** reach the target checkpoint:*
+```
+Fitness = (3000 / (d + 1)) + (v * 5) - P_stuck(v)
+```
+Where the "Stuck Penalty" $P_{stuck}(v)$ is:
+```
+P_stuck(v) =
+  2000, if |v| < 1
+  0,    if |v| >= 1
+```
+
+*In both cases, a "Critical Fail" (moving backwards) results in an immediate fitness of `-5000`.*
