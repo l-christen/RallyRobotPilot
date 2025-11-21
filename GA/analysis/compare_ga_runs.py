@@ -43,27 +43,7 @@ plt.yscale('symlog') # Use a symmetric logarithmic scale to handle large positiv
 plt.grid(True, which="both", ls="--")
 plt.legend(fontsize=10)
 
-# Add annotations to explain key points
-plt.annotate('Rapid learning on simple segment', 
-             xy=(1, 16156.2), 
-             xytext=(3, 20000), 
-             arrowprops=dict(facecolor='black', shrink=0.05, width=1, headwidth=8),
-             fontsize=10,
-             bbox=dict(boxstyle="round,pad=0.3", fc="ivory", ec="black", lw=1))
 
-plt.annotate('Complete failure on hard segment', 
-             xy=(10, -1988.1), 
-             xytext=(5, -10000), 
-             arrowprops=dict(facecolor='black', shrink=0.05, width=1, headwidth=8),
-             fontsize=10,
-             bbox=dict(boxstyle="round,pad=0.3", fc="mistyrose", ec="black", lw=1))
-             
-plt.annotate('Stagnation due to technical errors', 
-             xy=(15, 93.79), 
-             xytext=(10, 300), 
-             arrowprops=dict(facecolor='black', shrink=0.05, width=1, headwidth=8),
-             fontsize=10,
-             bbox=dict(boxstyle="round,pad=0.3", fc="honeydew", ec="black", lw=1))
 
 # --- 4. Save the Plot ---
 analysis_dir = os.path.join(os.path.dirname(__file__))
